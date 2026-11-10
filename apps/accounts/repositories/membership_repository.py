@@ -32,6 +32,19 @@ class PostgresMembershipRepository:
         )
         return _to_entity(row)
 
+    def find_owner_user_id(self, organization_id: UUID) -> UUID | None:
+        """The oldest active Owner of the organization (used by seed_demo)."""
+        row = (
+            MembershipModel.objects.filter(
+                organization_id=organization_id,
+                role=int(Role.OWNER),
+                status=int(MembershipStatus.ACTIVE),
+            )
+            .order_by("created_at", "id")
+            .first()
+        )
+        return row.user_id if row else None
+
     def get_active(self, organization_id: UUID, user_id: UUID) -> Membership | None:
         # Both ids in the filter: asking for another organization's membership finds nothing (tenant
         # check).

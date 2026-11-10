@@ -54,6 +54,8 @@ def error_body(err: AppError) -> dict[str, object]:
         }
     if err.current is not None:
         body["current"] = err.current
+    for key, value in err.extra.items():
+        body.setdefault(key, value)
     return body
 
 

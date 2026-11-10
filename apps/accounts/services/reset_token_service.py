@@ -28,11 +28,11 @@ class ResetTokenService:
 
     def user_id_in(self, token: object) -> UUID | None:
         """Who the token claims to be for. Not proof of anything until is_valid() agrees."""
-        parts = self._split(token)
+        parts = _split(token)
         return UUID(hex=parts[0]) if parts else None
 
     def is_valid(self, token: object, user: User) -> bool:
-        parts = self._split(token)
+        parts = _split(token)
         if parts is None or parts[0] != user.id.hex:
             return False
         _, expires_at, signature = parts
@@ -47,7 +47,7 @@ class ResetTokenService:
             f"{user.id.hex}|{expires_at}|{user.password_hash}|{last_login}",
         )
 
-    @staticmethod
-    def _split(token: object) -> tuple[str, str, str] | None:
-        match = _FORMAT.fullmatch(token) if isinstance(token, str) else None
-        return (match.group(1), match.group(2), match.group(3)) if match else None
+
+def _split(token: object) -> tuple[str, str, str] | None:
+    match = _FORMAT.fullmatch(token) if isinstance(token, str) else None
+    return (match.group(1), match.group(2), match.group(3)) if match else None

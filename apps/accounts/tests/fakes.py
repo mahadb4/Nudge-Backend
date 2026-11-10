@@ -35,6 +35,7 @@ from common.attempts import AttemptLimiter
 from common.constants import AccountType, Role
 from common.security.hmac_hasher import HmacHasher
 from common.security.jwt_token_signer import JwtTokenSigner
+from common.tenancy import TenantContext
 from common.tests.fakes import (
     FakeAuditWriter,
     FakeCache,
@@ -282,13 +283,13 @@ class FakeSessionRepository:
 
 class FakeStageSeeder:
     def __init__(self) -> None:
-        self.seeded: list[UUID] = []
+        self.seeded: list[TenantContext] = []
         self.error: Exception | None = None
 
-    def seed_defaults(self, organization_id: UUID) -> list[object]:
+    def seed_defaults(self, context: TenantContext) -> list[object]:
         if self.error is not None:
             raise self.error
-        self.seeded.append(organization_id)
+        self.seeded.append(context)
         return []
 
 

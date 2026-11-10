@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
-from common.constants import ActorType, AuditAction
+from common.constants import ActorType, AuditAction, EmailKind
 
 
 class Clock(Protocol):
@@ -40,9 +40,17 @@ class Cache(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class EmailMessage:
+    """text_body is always the full message. A message with a kind also gets an HTML version
+    (html_body) from the renderer; the kind's values are only inserted into its template."""
+
     to: str
     subject: str
     text_body: str
+    kind: EmailKind | None = None
+    recipient_name: str | None = None
+    code: str | None = None
+    link: str | None = None
+    html_body: str | None = None
 
 
 class EmailSender(Protocol):

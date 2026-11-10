@@ -3,7 +3,6 @@
 import json
 import re
 from datetime import UTC, datetime
-from uuid import UUID
 
 import pytest
 from django.core import mail
@@ -16,6 +15,7 @@ from common.errors import ServiceUnavailable
 from common.infra.cache import DjangoCache
 from common.security.argon2_password_hasher import Argon2PasswordHasher
 from common.security.refresh_tokens import sha256_hex, split_refresh_value
+from common.tenancy import TenantContext
 from config import container
 
 pytestmark = pytest.mark.django_db
@@ -138,15 +138,16 @@ def test_a_known_address_gets_the_same_response_and_no_new_rows(client, clock):
     clock.advance(31)
     second = post(
         client, REGISTER, {**BODY, "name": "Someone Else", "password": "Another-Password-77"}
-    )
+    )  # the first code is still live, so this is treated like a known email
     assert (first.status_code, first.json()) == (second.status_code, second.json())
     assert [count(t) for t in ("users", "organizations", "memberships")] == [1, 1, 1]
 
 
-def test_an_unverified_address_is_overwritten_by_the_latest_sign_up(client, clock):
+def test_an_unverified_address_is_overwritten_once_its_code_expired(client, clock):
     assert post(client, REGISTER, BODY).status_code == 202
     first_code = emailed_code()
-    clock.advance(31)
+    clock.advance(601)
+    caches["default"].clear()  # the real cache cannot be fast-forwarded: drop the expired code
     second = {**BODY, "name": "Sana Malik", "password": "Copper-Meadow-Gate-55"}
     assert post(client, REGISTER, second).status_code == 202
     assert [count(t) for t in ("users", "organizations", "memberships")] == [1, 1, 1]
@@ -172,7 +173,7 @@ def test_the_password_is_hashed_with_argon2_in_the_database(client, monkeypatch)
 
 def test_a_failure_halfway_rolls_back_every_table(client, monkeypatch):
     class BrokenSeeder:
-        def seed_defaults(self, organization_id: UUID) -> list[object]:
+        def seed_defaults(self, context: TenantContext) -> list[object]:
             raise ServiceUnavailable()
 
     monkeypatch.setattr(container, "stage_service", lambda: BrokenSeeder())

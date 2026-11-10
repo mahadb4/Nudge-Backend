@@ -93,8 +93,8 @@ OpenAPI 3 from drf-spectacular, and Swagger UI. Public when DEBUG is True; in pr
 Auth-flow codes (texts are in common/messages.py):
 | Code | Status | Used by |
 |---|---|---|
-| AUTH_CODE_SENT | 202 | register, resend (same body for known and unknown emails) |
-| AUTH_RESET_LINK_SENT | 202 | reset (same body for known and unknown emails) |
+| AUTH_CODE_SENT | 202 | register, resend (same body for known and unknown emails, also when the mail server fails or times out) |
+| AUTH_RESET_LINK_SENT | 202 | reset (same body for known and unknown emails, also when the mail server fails or times out) |
 | AUTH_BAD_CREDENTIALS | 401 | login |
 | AUTH_EMAIL_UNVERIFIED | 403 | login |
 | AUTH_INVALID_CODE | 400 | verify |
@@ -109,6 +109,9 @@ Auth-flow codes (texts are in common/messages.py):
 ### GET /auth/csrf/ [midterm] (built, A4)
 Public. Sets the csrftoken cookie. 200 {"csrf_token": "..."}. Tables: none.
 
+### Email delivery failures (all paths that send mail)
+If the mail server fails or times out (10 seconds by default, EMAIL_TIMEOUT), the endpoint answers exactly as if the mail had gone out and a failure line is logged (error kind, SMTP status code and subject; never the address, the body, the login or the password). Paths: POST /auth/register/, /auth/resend/ and /auth/reset/ (202: a different answer would reveal whether an address has an account) and the "password was changed" notice of POST /auth/password/ and /auth/reset/confirm/ (the change is already saved, so the answer stays 204). (Visible change, 10 Nov 2026: the verification code, the "someone tried to sign up" notice and the reset email are now sent as an HTML email with the same plain-text version as before. Subjects, codes, links and every response are unchanged.) A user whose code or link never arrives asks again with /auth/resend/ or /auth/reset/. Code that needs the mail to be sent (a future invitation) uses the strict sender and answers 503 COMMON_SERVICE_UNAVAILABLE, never 500.
+
 ### POST /auth/register/ [midterm] (built, A4)
 Public, CSRF required.
 Request (same shape as the frontend sign-up form, src/pages/Auth.tsx, src/api/auth.ts, except type):
@@ -117,8 +120,8 @@ Request (same shape as the frontend sign-up form, src/pages/Auth.tsx, src/api/au
 - type is lowercase on the wire, like every other code. The frontend currently sends "Individual" / "Business" and must map them (frontend change 26). "Individual" or "Business" with capitals -> 400 VALIDATION_CHOICE_INVALID. GET /auth/me/ returns "individual" or "business" in "type".
 - timezone: the frontend shows the browser zone but does not send it yet (frontend change 5). Until then a missing timezone is a 400, never a server default.
 Response: 202 {"code": "AUTH_CODE_SENT", "detail": "..."} for every address. An existing address never gets new rows:
-- never verified: the latest sign-up wins. Password, name, timezone and the organization (name, type, timezone) are replaced in one transaction, the earlier code stops working and a new code is emailed (audit: user.register_replace).
-- verified: nothing changes; that person is sent a "someone tried to register" email (audit: user.register_existing).
+- never verified, and its code expired (more than 10 minutes): the latest sign-up wins. Password, name, timezone and the organization (name, type, timezone) are replaced in one transaction, the earlier code stops working and a new code is emailed (audit: user.register_replace).
+- verified, or never verified but its code is still live: nothing changes and nothing is invalidated; that person is sent a "someone tried to register" email (audit: user.register_existing).
 Writes, in one transaction:
 - users: email (lowercased), password (Argon2 hash), full_name, timezone, is_active true.
 - organizations:
@@ -202,7 +205,10 @@ Bearer. The current organization is the oldest active membership until X-Organiz
 Tables: users, memberships, organizations.
 Errors: 401 (the frontend treats this as signed out).
 
-### PATCH /auth/me/ [midterm] (profile)
+### PATCH /auth/me/ [midterm] (built, A7)
+Bearer. Only the fields that are sent change; an empty body changes nothing. null clears phone and both quiet-hours times. Audit details hold the field names only.
+Quiet hours: after the change both are set or both are empty (VALIDATION_QUIET_HOURS_PAIR on the empty one). Times are "HH:MM" (VALIDATION_TIME_INVALID). Phone: "+" and a valid number, stored as E.164 (VALIDATION_PHONE_NEEDS_PLUS, VALIDATION_PHONE_INVALID). Unknown fields, including email, role and id -> 400 VALIDATION_UNKNOWN_FIELD.
+GET /auth/me/ now honours X-Organization-ID for "organization" and "role" (unknown or foreign id -> 404) and returns quiet_hours_start and quiet_hours_end.
 Request (all optional): {"name", "phone", "timezone", "quiet_hours_start", "quiet_hours_end"}.
 200 <Me>. audit: user.profile_update.
 Writes users.full_name, users.phone, users.timezone, users.quiet_hours_start, users.quiet_hours_end.
@@ -243,9 +249,9 @@ Reads user_sessions of the caller WHERE revoked_at IS NULL AND expires_at > now(
 Not built for the midterm. The frontend hides the Google, Microsoft and SSO buttons in real mode. No table holds a provider subject id (G-A5), so the approach is decided later.
 
 ### Demo access (Q-4)
-There is no demo endpoint and no bypass. `python manage.py seed_demo` (refuses to run when DEBUG is False, and in production settings) creates:
-- a demo organization with the companies, contacts and deals from the frontend's seed.ts;
-- a verified demo user with a random password, printed once.
+There is no demo endpoint and no bypass. `python manage.py seed_demo [--reset-password]` (built; refuses unless the settings are config.settings.dev, DEBUG is on and the connected database is the development database) creates:
+- a demo organization "Nudge Demo Workspace" with the 7 default stages, 8 companies and 25 contacts (companies and deals from the frontend's seed.ts come later: deals do not exist yet);
+- a verified Owner with a random email (demo-xxxxxxxx@example.com) and a random password, both printed once. Running it again duplicates nothing and prints the owner's email only; --reset-password prints a new password.
 That user signs in through POST /auth/login/ like anyone else.
 
 ## 3. accounts: organizations, members, teams, invitations
@@ -254,11 +260,13 @@ That user signs in through POST /auth/login/ like anyone else.
 200 [{"id", "name", "type", "role"}]. The workspace switcher.
 Reads memberships (status 1) JOIN organizations (deactivated_at IS NULL).
 
-### GET /organizations/current/ [midterm]
+### GET /organizations/current/ [midterm] (built, A7)
+Header X-Organization-ID is required when the user has several organizations (400 TENANCY_ORGANIZATION_REQUIRED); an organization the user does not belong to is 404.
 200 {"id", "name", "type", "timezone", "automation_paused": bool}.
 Reads organizations (automation_paused_at, deactivated_at).
 
-### PATCH /organizations/current/ [midterm]
+### PATCH /organizations/current/ [midterm] (built, A7)
+Only the sent fields change (unknown fields such as currency or automation_paused -> 400). audit details: field names.
 Owner or Admin. Request: {"name"? (2-120, no < >), "timezone"? (IANA)}. 200 as GET.
 Writes organizations.name, organizations.timezone. audit: organization.update.
 No currency field: the 'Default currency' select is removed from Workspace settings (Q-11). Errors: 400, 403.
@@ -304,7 +312,8 @@ Soft-deleted rows (deleted_at not null) behave as 404 (Q-15 covers restore).
 
 ### Deal stages
 
-GET /deal-stages/ [midterm]
+GET /deal-stages/ [midterm] (built, A7; all five deal-stage endpoints)
+Any active member. All stage endpoints need the Bearer token and follow the X-Organization-ID rule above. A stage id of another organization is 404 COMMON_NOT_FOUND. Every write locks the organization's stage rows, runs in one transaction and writes an audit row (details: names, never secrets).
 200 [{"id", "name", "position", "outcome": "open" | "won" | "lost", "deal_count"}] ordered by position. Not paginated (at most 12).
 Reads deal_stages, deals (count of live deals).
 
@@ -312,7 +321,7 @@ POST /deal-stages/ [midterm]
 Owner or Admin. Request: {"name"}. Inserted as an open stage before the won stage. 201.
 Rules (Q-5): name 1-40 after clean, no < >, unique per organization ignoring case (uq_deal_stages_1); at most 12 stages in total.
 Writes deal_stages. audit: deal_stage.create.
-Errors: 400 (including CRM_STAGE_LIMIT_REACHED), 403, 409 CRM_STAGE_NAME_TAKEN.
+Errors: 400 (including CRM_STAGE_LIMIT_REACHED), 403, 409 CRM_STAGE_NAME_TAKEN. The 201 body is the new stage with deal_count 0; positions of Won and Lost move up by one.
 
 PATCH /deal-stages/{id}/ [midterm]
 Owner or Admin. Request: {"name"}. Writes deal_stages.name. audit: deal_stage.update.
@@ -321,18 +330,22 @@ Won and Lost stages cannot be renamed (Q-5): 400. Errors: 400, 403, 409 duplicat
 PUT /deal-stages/order/ [midterm]
 Owner or Admin. Request: {"ids": [all stage ids in the new order]}. 200 list.
 Rules (Q-5): the list must contain every stage exactly once; the first open stage stays first; open stages, then the one won stage, then the one lost stage last.
-Positions are rewritten 0..n-1 in one transaction, unique and gap-free (spec).
+Positions are rewritten 0..n-1 in one transaction, unique and gap-free (spec). An order that is already current changes and audits nothing. A wrong list -> 400 fields.ids = CRM_STAGE_ORDER_INVALID; a missing or non-list ids -> VALIDATION_REQUIRED / VALIDATION_LIST_INVALID.
 Writes deal_stages.position. audit: deal_stage.reorder. Errors: 400, 403.
 
 DELETE /deal-stages/{id}/ [midterm]
-Owner or Admin. 204. Only open stages; Won and Lost cannot be deleted (Q-5): 400.
-Errors: 409 CRM_STAGE_IN_USE when live deals use it; 409 CRM_LAST_OPEN_STAGE when it is the last open stage.
+Owner or Admin. 204. Only open stages; Won and Lost cannot be deleted (Q-5): 400 CRM_STAGE_FIXED. The remaining positions are closed up to 0..n-1.
+Errors: 409 CRM_STAGE_IN_USE when any deal uses it (soft-deleted deals count, because the foreign key still blocks the delete); 409 CRM_LAST_OPEN_STAGE when it is the last open stage.
 
-### Companies
+### Companies (built, 9 Nov 2026)
+
+All company endpoints: Bearer token; X-Organization-ID rule as for stages; any active member; the visibility rule above decides which rows exist for the caller (others are 404). Unknown query parameters or body fields -> 400 naming them. Every write is audited and runs in one transaction.
 
 GET /companies/ [midterm]
-?q= (name, domain, industry; <= 100), ?owner_id=, ?ordering=name|-created_at, page-number.
-200 page of <Company> = {
+?q= (name, domain, industry; 2-100 characters; case-insensitive contains), ?owner_id=, ?ordering=name|-created_at (default name), ?page=, ?page_size= (1-100, default 25).
+Response {"count", "next", "previous", "results": [<Company>]}; next/previous are absolute URLs or null. Always five queries.
+Errors: 400 with the parameter named (VALIDATION_PAGE_INVALID, VALIDATION_PAGE_SIZE_INVALID, VALIDATION_CHOICE_INVALID, VALIDATION_TOO_SHORT/LONG, VALIDATION_UUID_INVALID, VALIDATION_UNKNOWN_FIELD).
+<Company> = {
   "id", "name", "domain", "industry",
   "size_range": "1-10" | "11-50" | "51-200" | "201-500" | "500+" | null,
   "owner": {"id", "name"}, "visibility", "team_id",
@@ -351,22 +364,26 @@ Rules:
 - owner: an active member.
 - team_id: required if and only if visibility = team (ck_companies_visibility_team_id).
 Writes companies. audit: company.create.
+A domain is lowercased; a URL, a path or a name without a dot is VALIDATION_DOMAIN_INVALID; null or blank clears it. industry: null or blank clears it. size_range: "1-10" | "11-50" | "51-200" | "201-500" | "500+" or null. visibility: "private" | "team" | "organization". Rules for the links: VALIDATION_MEMBER_INVALID (owner_id), VALIDATION_TEAM_REQUIRED / VALIDATION_TEAM_NOT_ALLOWED / VALIDATION_TEAM_INVALID (team_id).
 Errors: 400; 409 CRM_COMPANY_NAME_TAKEN or CRM_COMPANY_DOMAIN_TAKEN.
 
 GET /companies/{id}/ [midterm]
 200 <Company>. People and deals come from /contacts/?company_id= and /deals/?company_id=.
 
 PATCH /companies/{id}/ [midterm]
-Request: any POST field + "updated_at". 200. audit: company.update. Errors: 400, 409 duplicate, 409 version_conflict.
+Request: any POST field + "updated_at" (required, exactly as read, ISO 8601 with offset). Only the sent fields change; null clears domain, industry, size_range. 200 <Company>. audit: company.update (label and changes {field: {from, to}}).
+Errors: 400; 404; 409 CRM_COMPANY_NAME_TAKEN / CRM_COMPANY_DOMAIN_TAKEN; 409 COMMON_VERSION_CONFLICT with "current": <Company> when updated_at is stale.
 
 DELETE /companies/{id}/ [midterm]
 204. Sets companies.deleted_at. audit: company.delete.
 
-### Contacts
+### Contacts (built, 9 Nov 2026; opt-out and opt-in are not built yet)
+
+Same rules as companies: Bearer token, X-Organization-ID rule, any active member, the visibility rule decides which rows exist for the caller (others are 404), unknown query parameters or body fields are 400 and named, every write is audited in one transaction. PATCH needs `updated_at` exactly as read (409 COMMON_VERSION_CONFLICT with `current`).
 
 GET /contacts/ [midterm]
-Filters: ?q= (first_name, last_name, email, company name; <= 100), ?status=active|opted_out, ?owner_id=, ?company_id=, ?ordering=name|-created_at, page-number.
-200 page of <Contact> = {
+Filters: ?q= (first_name, last_name, email, company name; 2-100 characters; case-insensitive contains), ?status=active|opted_out, ?owner_id=, ?company_id=, ?ordering=name|-created_at (default name = last name, then first name; contacts without a last name sort last), ?page=, ?page_size= (1-100, default 25). Response {"count", "next", "previous", "results": [<Contact>]}. Four queries however many rows (count, page, owner names, company names).
+<Contact> = {
   "id", "first_name", "last_name", "name" (read-only), "email", "phone", "title" (job_title),
   "company": {"id", "name"} | null, "owner": {"id", "name"}, "visibility", "team_id",
   "status": "active" | "opted_out" (from opted_out_at), "opted_out_at",
@@ -375,7 +392,7 @@ Filters: ?q= (first_name, last_name, email, company name; <= 100), ?status=activ
   "created_at", "updated_at"
 }
 The frontend 'Suspended' status and 'location' have no column (G-A3).
-Reads contacts (ix_contacts_2 for the name order), companies, users. select_related company and owner.
+Reads contacts (ix_contacts_2 for the name order), companies, users. The company is shown only if the caller can see that company (otherwise null).
 
 POST /contacts/ [midterm]
 Request: {"first_name", "last_name"?, "email", "phone"?, "title"?, "company_id"?, "owner_id"?, "visibility"? (default organization, Q-20), "team_id"?}. 201 <Contact>. source = 1 Manual.
@@ -387,13 +404,14 @@ Rules:
 - title: <= 80 (Q-30).
 - company_id: in the same organization and visible to the caller.
 Writes contacts. audit: contact.create.
+company_id: a live company of this organization that the caller can see (VALIDATION_COMPANY_INVALID). owner_id and team_id follow the company rules (VALIDATION_MEMBER_INVALID, VALIDATION_TEAM_*).
 Errors: 400; 409 CRM_CONTACT_EMAIL_TAKEN.
 
 GET /contacts/{id}/ [midterm]
 200 <Contact>. The detail screen also calls /deals/?contact_id= (later: /threads/?contact_id=).
 
 PATCH /contacts/{id}/ [midterm]
-Any POST field + "updated_at". 200. audit: contact.update. Email cannot be cleared on a manually created contact. Errors: 400, 409.
+Any POST field + "updated_at" (required). Only the sent fields change; null clears last_name, phone, title, company_id. 200 <Contact>. audit: contact.update (label and {field: "changed"} for personal fields, {from, to} for owner, company, visibility, team). Email cannot be cleared (every contact is manual for now). Errors: 400, 404, 409 CRM_CONTACT_EMAIL_TAKEN (with "existing" when visible), 409 COMMON_VERSION_CONFLICT with "current".
 
 DELETE /contacts/{id}/ [midterm]
 204. Sets contacts.deleted_at. audit: contact.delete.

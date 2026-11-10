@@ -1,6 +1,7 @@
 """Sign-up. Same answer for every email. A new address gets an account and a code. A known address
-that was never verified is overwritten (latest sign-up wins) and gets a fresh code. A verified
-address is left alone and only gets a notice."""
+that was never verified is overwritten (latest sign-up wins) once its verification code has
+expired, and gets a fresh code. While the code is still live, and for a verified address, nothing
+changes and the owner only gets a notice."""
 
 from apps.accounts.domain.entities import RegisterData, User
 from apps.accounts.domain.errors import DuplicateEmail
@@ -19,6 +20,7 @@ from common.constants import (
     ActorType,
     AttemptLimits,
     AuditAction,
+    EmailKind,
     HmacNamespace,
     Role,
     email_subject,
@@ -36,6 +38,7 @@ from common.interfaces import (
     UnitOfWork,
 )
 from common.messages import Messages
+from common.tenancy import TenantContext
 
 AUDIT_OBJECT_USER = "user"
 
@@ -110,7 +113,7 @@ class RegistrationService:
                 if existing is None:
                     raise ServiceUnavailable() from None
             else:
-                self._codes.send_code(user.email, email_hash)
+                self._codes.send_code(user.email, email_hash, user.full_name)
                 return
         self._answer_known_email(existing, data, email_hash, ip_address)
 
@@ -138,7 +141,7 @@ class RegistrationService:
                 user_id=user.id,
                 role=Role.OWNER,
             )
-            self._stage_seeder.seed_defaults(organization.id)
+            self._stage_seeder.seed_defaults(TenantContext(user.id, organization.id, Role.OWNER))
             self._audit.write(
                 AuditEvent(
                     action=AuditAction.USER_REGISTER,
@@ -156,11 +159,13 @@ class RegistrationService:
     def _answer_known_email(
         self, existing: User, data: RegisterData, email_hash: str, ip_address: str | None
     ) -> None:
-        if existing.email_verified_at is None and self._replace_unverified(
-            existing, data, email_hash, ip_address
+        if (
+            existing.email_verified_at is None
+            and not self._codes.is_live(email_hash)
+            and self._replace_unverified(existing, data, email_hash, ip_address)
         ):
             # The latest sign-up wins: the earlier password and code are gone, this code is new.
-            self._codes.send_code(existing.email, email_hash)
+            self._codes.send_code(existing.email, email_hash, existing.full_name)
             return
         self._send_notice(existing, data, email_hash, ip_address)
 
@@ -222,12 +227,14 @@ class RegistrationService:
                 ip_address=ip_address,
             )
         )
+        link = f"{self._frontend_url}/sign-in"
         self._email.send(
             EmailMessage(
                 to=existing.email,
                 subject=Messages.EMAIL_REGISTER_EXISTING_SUBJECT.value,
-                text_body=Messages.EMAIL_REGISTER_EXISTING_BODY.render(
-                    f"{self._frontend_url}/sign-in"
-                ),
+                text_body=Messages.EMAIL_REGISTER_EXISTING_BODY.render(link),
+                kind=EmailKind.REGISTER_EXISTING,
+                recipient_name=existing.full_name,
+                link=link,
             )
         )

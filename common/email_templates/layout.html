@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>{{ heading }}</title>
+<style>
+  @media only screen and (max-width: 600px) {
+    .outer { padding: 16px 12px !important; }
+    .pad { padding: 24px !important; }
+    .code { font-size: 36px !important; letter-spacing: 6px !important; padding: 20px 8px !important; }
+    .btn-table { width: 100% !important; }
+    .btn-text { display: block !important; text-align: center !important; }
+  }
+  @media (prefers-color-scheme: dark) {
+    .bg { background-color: #000000 !important; }
+    .card { background-color: #000000 !important; border-color: #333333 !important; }
+    .text { color: #ededed !important; }
+    .muted { color: #a3a3a3 !important; }
+    .code { background-color: #0a0a0a !important; border-color: #333333 !important; color: #ffffff !important; }
+    .mark { border: 1px solid #333333 !important; }
+    .btn { background-color: #ededed !important; }
+    .btn-text { color: #000000 !important; }
+    .link { color: #ededed !important; }
+    .divider { border-top-color: #333333 !important; }
+  }
+</style>
+</head>
+<body class="bg" style="margin:0;padding:0;background-color:#ffffff;">
+<table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;">
+  <tr>
+    <td class="outer" align="center" style="padding:40px 16px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;">
+        <tr>
+          <td class="card" style="background-color:#ffffff;border:1px solid #d9d9d9;border-radius:12px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td bgcolor="#3ecf8e" height="3" style="height:3px;line-height:3px;font-size:0;background-color:#3ecf8e;border-radius:12px 12px 0 0;">&nbsp;</td>
+              </tr>
+              <tr>
+                <td class="pad" style="padding:40px;">
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                      <td style="padding-bottom:32px;">
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                          <tr>
+                            <td class="mark" align="center" valign="middle" width="40" height="40" bgcolor="#171717" style="width:40px;height:40px;background-color:#171717;border-radius:12px;font-family:Arial,Helvetica,sans-serif;font-size:22px;font-weight:700;line-height:40px;white-space:nowrap;"><span style="color:#ffffff;">&bull;</span><span style="color:#3ecf8e;">&rsaquo;</span></td>
+                            <td class="text" valign="middle" style="padding-left:12px;color:#171717;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:22px;font-weight:600;letter-spacing:-0.03em;">{{ brand_name }}</td>
+                          </tr>
+                        </table>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td class="text" style="color:#171717;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:28px;font-weight:700;line-height:1.25;letter-spacing:-0.02em;padding-bottom:20px;">{{ heading }}</td>
+                    </tr>
+                    {% if greeting %}<tr>
+                      <td class="text" style="color:#171717;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;padding-bottom:8px;">{{ greeting }}</td>
+                    </tr>{% endif %}
+                    <tr>
+                      <td class="text" style="color:#171717;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;padding-bottom:28px;">{{ intro }}</td>
+                    </tr>
+{% block action %}{% endblock %}
+                    {% if valid %}<tr>
+                      <td class="muted" style="color:#6e6e6e;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;padding-top:12px;">{{ valid }}</td>
+                    </tr>{% endif %}
+                    <tr>
+                      <td class="muted" style="color:#6e6e6e;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;padding-top:20px;">{{ not_you }}</td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:28px 4px 0 4px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td class="divider" style="border-top:1px solid #ececec;font-size:0;line-height:0;height:1px;">&nbsp;</td>
+              </tr>
+              <tr>
+                <td class="muted" style="color:#6e6e6e;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;padding-top:16px;">{{ footer_automated }}</td>
+              </tr>
+              <tr>
+                <td class="muted" style="color:#6e6e6e;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:13px;font-weight:600;line-height:1.6;padding-top:4px;">{{ footer_brand }}</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>

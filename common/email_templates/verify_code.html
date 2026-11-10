@@ -1,0 +1,9 @@
+{% extends "layout.html" %}
+{% block action %}
+                    <tr>
+                      <td class="muted" style="color:#6e6e6e;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;padding-bottom:8px;">{{ code_label }}</td>
+                    </tr>
+                    <tr>
+                      <td align="center" class="code" style="background-color:#f2f2f2;border:1px solid #d9d9d9;border-radius:8px;color:#171717;font-family:ui-monospace,'SFMono-Regular',Menlo,Consolas,'Liberation Mono',monospace;font-size:40px;font-weight:700;letter-spacing:10px;padding:24px 12px;">{{ code }}</td>
+                    </tr>
+{% endblock %}

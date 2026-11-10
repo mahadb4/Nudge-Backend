@@ -14,6 +14,7 @@ from apps.accounts.dtos.auth_dtos import (
     ResendRequest,
     VerifyRequest,
 )
+from apps.accounts.dtos.profile_dtos import ProfileUpdateRequest
 from apps.accounts.mappers.auth_mapper import to_me_response, to_sign_in_response
 from common.api import CsrfProtectedApi, client_ip_of
 from common.constants import Cookie, MetaKey
@@ -114,8 +115,19 @@ class LogoutApi(CsrfProtectedApi):
 
 
 class MeApi(APIView):
-    """GET /auth/me/: the signed-in user (bearer token)."""
+    """GET and PATCH /auth/me/: the signed-in user (bearer token)."""
 
     def get(self, request: Request) -> Response:
-        me = container.me_service().get_me(principal_of(request).user_id)
+        me = container.me_service().get_me(
+            principal_of(request).user_id, request.META.get(MetaKey.ORGANIZATION)
+        )
+        return Response(to_me_response(me).to_dict())
+
+    def patch(self, request: Request) -> Response:
+        me = container.profile_service().update(
+            user_id=principal_of(request).user_id,
+            organization_header=request.META.get(MetaKey.ORGANIZATION),
+            sent=ProfileUpdateRequest.read_sent(request.data),
+            ip_address=client_ip_of(request),
+        )
         return Response(to_me_response(me).to_dict())

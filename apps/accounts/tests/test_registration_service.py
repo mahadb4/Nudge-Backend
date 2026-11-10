@@ -7,8 +7,10 @@ import pytest
 from apps.accounts.domain.entities import User
 from apps.accounts.domain.enums import CodeCheck
 from apps.accounts.tests.fakes import FRONTEND_URL, VALID_REGISTRATION, AccountsWorld
-from common.constants import AccountType, ActorType, AuditAction, HmacNamespace, Role
+from common.constants import AccountType, ActorType, AuditAction, HmacNamespace, Role, Ttl
 from common.errors import RateLimited, ServiceUnavailable, ValidationFailed
+
+CODE_EXPIRED = Ttl.VERIFY_CODE + 1  # seconds: the verification code (10 minutes) is gone
 
 
 @pytest.fixture
@@ -41,7 +43,7 @@ def test_a_new_business_gets_a_user_an_organization_an_owner_membership_and_defa
         organization.id,
         Role.OWNER,
     )
-    assert world.seeder.seeded == [organization.id]
+    assert [c.organization_id for c in world.seeder.seeded] == [organization.id]
 
 
 def test_an_individual_organization_is_named_after_the_person(world):
@@ -174,9 +176,49 @@ def test_a_verified_address_gets_a_notice_email_and_no_new_rows(world):
     assert not re.search(r"\d{6}", notice.text_body)
 
 
-def test_an_unverified_address_gets_a_fresh_code_instead(world):
+def test_an_unverified_address_with_a_live_code_is_treated_like_a_known_email(world):
+    world.register()
+    user_before = next(iter(world.users.rows.values()))
+    (org_before,) = world.organizations.rows.values()
+    code = world.last_code()
+    world.clock.advance(31)
+    world.register(
+        name="Sana Malik", password="Copper-Meadow-Gate-55", account_type="individual", company=None
+    )
+    assert next(iter(world.users.rows.values())) == user_before
+    assert tuple(world.organizations.rows.values()) == (org_before,)
+    assert world.email.outbox[-1].subject == "Someone tried to sign up"
+    assert world.audit.events[-1].action is AuditAction.USER_REGISTER_EXISTING
+    # The first code still works, nothing was invalidated.
+    assert (
+        world.code_repository.check(
+            world.digests.digest(HmacNamespace.EMAIL, "ali@example.com"), code
+        )
+        is CodeCheck.OK
+    )
+
+
+def test_a_live_code_costs_the_same_hashing_work_as_a_known_email(world):
     world.register()
     world.clock.advance(31)
+    world.register(name="Sana Malik")
+    assert world.hasher.dummy_calls == 1  # same slow work as creating an account
+    assert world.email.outbox[-1].subject == "Someone tried to sign up"
+
+
+def test_the_code_stays_protected_until_its_last_second_then_the_newest_sign_up_wins(world):
+    world.register()
+    world.clock.advance(Ttl.VERIFY_CODE - 1)
+    world.register(name="Sana Malik", password="Copper-Meadow-Gate-55")
+    assert only_user(world).full_name == "Ali Raza"
+    world.clock.advance(2)  # now past the 10 minutes since the first code
+    world.register(name="Sana Malik", password="Copper-Meadow-Gate-55")
+    assert only_user(world).full_name == "Sana Malik"
+
+
+def test_an_unverified_address_with_an_expired_code_gets_a_fresh_code_instead(world):
+    world.register()
+    world.clock.advance(CODE_EXPIRED)
     world.register()
     assert len(world.users.rows) == 1
     assert [m.subject for m in world.email.outbox] == ["Your Nudge verification code"] * 2
@@ -230,7 +272,7 @@ def email_hash(world: AccountsWorld) -> str:
 
 def test_the_latest_registration_replaces_password_name_and_organization(world):
     world.register()
-    world.clock.advance(31)
+    world.clock.advance(CODE_EXPIRED)
     world.register(
         name="Sana Malik",
         company="Second Co",
@@ -252,7 +294,7 @@ def test_the_latest_registration_replaces_password_name_and_organization(world):
 
 def test_the_replacement_can_change_the_organization_type(world):
     world.register()
-    world.clock.advance(31)
+    world.clock.advance(CODE_EXPIRED)
     world.register(account_type="individual", company=None)
     (organization,) = world.organizations.rows.values()
     assert (organization.name, organization.account_type) == ("Ali Raza", AccountType.INDIVIDUAL)
@@ -260,7 +302,7 @@ def test_the_replacement_can_change_the_organization_type(world):
 
 def test_the_replacement_is_one_transaction_with_an_audit_row_and_no_secrets(world):
     world.register()
-    world.clock.advance(31)
+    world.clock.advance(CODE_EXPIRED)
     opened = world.uow.opened
     world.register(password="Copper-Meadow-Gate-55")
     assert world.uow.opened == opened + 1
@@ -278,7 +320,7 @@ def test_the_replacement_is_one_transaction_with_an_audit_row_and_no_secrets(wor
 
 def test_the_replacement_hashes_the_new_password_for_real_not_a_dummy(world):
     world.register()
-    world.clock.advance(31)
+    world.clock.advance(CODE_EXPIRED)
     world.register()
     assert world.hasher.dummy_calls == 0
 
@@ -286,7 +328,7 @@ def test_the_replacement_hashes_the_new_password_for_real_not_a_dummy(world):
 def test_the_previous_code_stops_working_and_a_new_one_is_issued(world):
     world.register()
     first_code = world.last_code()
-    world.clock.advance(31)
+    world.clock.advance(CODE_EXPIRED)
     world.register(password="Copper-Meadow-Gate-55")
     second_code = world.last_code()
     assert first_code != second_code
@@ -299,7 +341,7 @@ def test_the_wrong_try_counter_starts_again_with_the_new_code(world):
     bad = "000000" if world.last_code() != "000000" else "111111"
     for _ in range(4):
         world.code_repository.check(email_hash(world), bad)
-    world.clock.advance(31)
+    world.clock.advance(CODE_EXPIRED)
     world.register()
     assert world.code_repository.check(email_hash(world), bad) is CodeCheck.WRONG
     assert world.code_repository.check(email_hash(world), world.last_code()) is CodeCheck.OK
@@ -313,7 +355,7 @@ def verify_with_latest_code(world: AccountsWorld):
 
 def test_attacker_first_then_the_victim_who_verifies_has_the_victims_password(world):
     world.register(**ATTACKER)
-    world.clock.advance(31)
+    world.clock.advance(CODE_EXPIRED)
     world.register(name="Vera Khan", password="Quiet-Harbor-Lamp-11")
     verify_with_latest_code(world)
     user = only_user(world)
@@ -325,7 +367,7 @@ def test_attacker_first_then_the_victim_who_verifies_has_the_victims_password(wo
 def test_victim_first_then_the_attacker_the_old_code_no_longer_works(world):
     world.register(name="Vera Khan", password="Quiet-Harbor-Lamp-11")
     victims_code = world.last_code()
-    world.clock.advance(31)
+    world.clock.advance(CODE_EXPIRED)
     world.register(**ATTACKER)
     with pytest.raises(ValidationFailed):
         world.verification.verify(
@@ -342,7 +384,7 @@ def test_a_verified_address_changes_nothing_but_gets_the_notice(world):
     world.users.mark_email_verified(only_user(world).id, world.clock.now())
     before_user = only_user(world)
     (before_org,) = world.organizations.rows.values()
-    world.clock.advance(31)
+    world.clock.advance(CODE_EXPIRED)
     world.register(**ATTACKER)
     assert only_user(world) == before_user
     assert tuple(world.organizations.rows.values()) == (before_org,)
@@ -354,7 +396,7 @@ def test_if_the_owner_verifies_just_before_our_update_the_notice_is_sent_instead
     world.register()
     before_hash = only_user(world).password_hash
     world.users.verify_before_next_update = world.clock.now()
-    world.clock.advance(31)
+    world.clock.advance(CODE_EXPIRED)
     world.register(**ATTACKER)
     assert only_user(world).password_hash == before_hash
     assert world.email.outbox[-1].subject == "Someone tried to sign up"
@@ -372,7 +414,7 @@ def test_two_sign_ups_racing_for_one_address_end_like_a_known_address(world):
 
 def test_the_caller_sees_no_difference_between_new_and_known(world):
     assert world.registration.register(**VALID_REGISTRATION, ip_address="203.0.113.9") is None
-    world.clock.advance(31)
+    world.clock.advance(CODE_EXPIRED)
     assert world.registration.register(**VALID_REGISTRATION, ip_address="203.0.113.9") is None
 
 

@@ -64,6 +64,8 @@ class MeResponse(ResponseDto):
     verified: bool
     phone: str | None
     timezone: str
+    quiet_hours_start: str | None
+    quiet_hours_end: str | None
     organization: MeOrganization
     role: str
     organizations: list[MeOrganizationRef]

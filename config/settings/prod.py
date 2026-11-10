@@ -1,8 +1,16 @@
 """Production and staging. Every value that matters must come from the environment."""
 
 from .base import *  # noqa: F403
-from .base import CACHES, EMAIL_HASH_KEY, JWT_SIGNING_KEY, SECRET_KEY, env
-from .checks import assert_shared_cache, assert_strong_keys
+from .base import (
+    CACHES,
+    EMAIL_BACKEND,
+    EMAIL_HASH_KEY,
+    EMAIL_TIMEOUT,
+    JWT_SIGNING_KEY,
+    SECRET_KEY,
+    env,
+)
+from .checks import assert_email_settings, assert_shared_cache, assert_strong_keys
 
 DEBUG = False
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
@@ -11,6 +19,7 @@ assert_strong_keys(
     {"SECRET_KEY": SECRET_KEY, "JWT_SIGNING_KEY": JWT_SIGNING_KEY, "EMAIL_HASH_KEY": EMAIL_HASH_KEY}
 )
 assert_shared_cache(CACHES)
+assert_email_settings(EMAIL_BACKEND, EMAIL_TIMEOUT, production=True)
 
 SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=True)
 SECURE_HSTS_SECONDS = 63_072_000

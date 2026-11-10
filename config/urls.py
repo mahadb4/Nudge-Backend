@@ -7,6 +7,7 @@ from common.responses import json_not_found
 api_v1 = [
     path("", include("common.health.api.urls")),
     path("", include("apps.accounts.api.urls")),
+    path("", include("apps.crm.api.urls")),
     # Last: any unknown /api/v1/ path is a JSON 404, also with DEBUG=True (where handler404 is not
     # used).
     re_path(r"^.*$", json_not_found),

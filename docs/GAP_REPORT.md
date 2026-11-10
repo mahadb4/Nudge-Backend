@@ -1,183 +1,91 @@
-# Gap report
+# Gap report: frontend screens against the backend that exists (10 Nov 2026)
 
-List only. Nothing here changes the schema. Sources:
-- Frontend: D:\Desktop\Nudge-frontend (src/, SECURITY.md).
-- SQL: nudge_schema_v3_1.sql.
-- Design: nudge_db_design_v3_1.md. Its section 12 already lists proposals H3, H4, M9, M10, M12, M13 and L13-L17; they are cited where they match.
-- nudge_validation_spec_v3_1.md was not found, so section 3 compares validate.ts and SECURITY.md with the SQL CHECKs and the design doc only.
+Written on 10 Nov 2026. Read only: no code was written or changed for this report.
+Sources:
+- Frontend: D:\Desktop\Nudge-frontend (src/App.tsx, src/pages, src/store.ts, src/data/seed.ts, src/api).
+- Backend: the endpoints listed in CLAUDE.md "Current status" and docs/API_CONTRACT.md.
+- The older schema-level gap list (tables and columns the frontend needs that the schema lacks, ids G-A1 to G-A20) moved, unchanged, to docs/GAP_REPORT_SCHEMA.md. The ids G-A* quoted in other docs point there.
 
-## 1. Frontend shows or does something with no table or column
+## What is wired today
 
-| ID | Frontend | Missing in schema | Note |
-|---|---|---|---|
-| G-A1 | Sign-up shows the browser time zone | Nothing missing, but the register call does not send it, and users.timezone and organizations.timezone are NOT NULL with no default | Frontend change only |
-| G-A2 | Workspace 'Default currency' (USD/PKR) | organizations has no currency column | deals.currency is NOT NULL with no default (P1 removed 'PKR') |
-| G-A3 | Contact status 'Suspended' | contacts has only opted_out_at | The frontend blocks sends to Suspended contacts |
-| G-A3 | Contact 'location' | No column | |
-| G-A3 | Contact 'last contact' | No column | Derivable from max(email_threads.last_message_at) per contact, later |
-| G-A3 | Company 'location' | No column | |
-| G-A3 | Company 'website' | No column (only domain) | |
-| G-A4 | Deal 'Notes' box (save one note) | No deals.note | activities type 1 Note exists but is an FYP-II table and is a timeline, not one field |
-| G-A5 | Google / Microsoft 365 / SSO sign-in buttons | No table for a provider subject id or linked identities | Design L13-L17: django-allauth would add tables |
-| G-A6 | New email (compose) and follow-up drafts 'Approve & queue' | reply_drafts.message_id is NOT NULL; no email_account_id, contact_id, follow_up_id or subject on reply_drafts | Design H4 |
-| G-A7 | Review: suggested action checkboxes (move stage, set follow-up, add contact) | No table | Design H3 (suggested_actions) |
-| G-A7 | Review: reject reason and note | No column | Design H3 |
-| G-A7 | Review: skip | No status code; reply_drafts.status has 1 Draft, 2 Approved, 3 Sent, 4 Failed, 5 Discarded | Design H3 |
-| G-A7 | Review: 'why' explanation | No column | |
-| G-A7 | Review: the evidence sentence for the reply type | extractions hold evidence for extracted fields, not for the label decision; predictions have no evidence column | |
-| G-A7 | Review: 'Used <facts>' | No link between reply_drafts and company_facts | |
-| G-A8 | Approved fact | company_facts.kind is NOT NULL (1 Pricing, 2 Product, 3 Policy, 4 Other); the frontend has no kind | Not a missing column; a missing UI field (or a fixed default) |
-| G-A9 | Global mode 'Draft-only' / 'Act when sure' | No organizations column | Design M9 |
-| G-A9 | Global confidence bar (one number, 60-99, default 85) | category_settings.min_score is per label (default 0.900) | Design M9 |
-| G-A9 | Two-step sign-in toggle | No TOTP secret or 2FA flag on users | |
-| G-A10 | Notification toggles per event (review, follow-up, meeting, mailbox, digest) | notification_channels is per channel (email, Slack, ...), not per event | Design L13-L17 mentions digest time |
-| G-A11 | Calendar 'hold' events and 'Confirm hold' | meetings.status has no hold | Design M12. meetings is a pending table |
-| G-A12 | Integrations: Calendar, Webhooks | No table | Design M13 |
-| G-A12 | Integrations: Slack | Only a notification_channels row (channel 2), not a workspace integration | Design M13 |
-| G-A13 | Session location 'Karachi, PK' | user_sessions has ip_address only | Design L13: GeoIP at display time |
-| G-A14 | Team description ('Replies and deals for new business') | teams has name only | |
-| G-A15 | Onboarding progress (which step is done) | No column | The frontend does not keep it either |
-| G-A16 | Review / thread status 'waiting for you' | email_threads.status 2 means waiting on them | Different meaning. 'Waiting for you' must be derived from reply_drafts status 1 |
-| G-A17 | Inbox type and confidence per thread | Not on email_threads | Derivable from predictions of the latest inbound message. Design M10 |
-| G-A18 | 'Approvals to unlock Act when sure' (50) | No counter column | Derivable: count of reply_drafts with approved_by_id. The threshold 50 is a rule with no home (M9) |
-| G-A19 | Agent chat history | assistant_* tables exist (FYP-II); the frontend keeps nothing | Not a gap, a later item |
-| G-A20 | Undo approval 'within 7 days' (toast text) | Undo window is send_after, a 10-minute hold per design (REQ-SF-03) | The value conflicts. See section 3 |
+Only authentication is wired to the real API (src/api/auth.ts, real mode is the default). Every other screen reads and writes an in-memory store that `hydrateWorkspace()` fills with `src/data/seed.ts` after sign-in. So "ready to wire" below means: the endpoint exists and works, and the screen still uses the mock store.
 
-## 2. Tables with no screen
+Backend endpoints that exist: health, csrf, register, verify, resend, login, refresh, logout, me (GET, PATCH), password change, reset, reset confirm, organizations/current (GET, PATCH), deal-stages (list, create, rename, reorder, delete), companies (list, get, create, update, delete), contacts (list, get, create, update, delete).
 
-No screen at all:
-- lead_forms, lead_submissions
-- mailbox_access
-- label_sets, ml_models, evaluation_runs, dataset_items, dataset_labels (internal and research)
-- notification_channels (the Notifications tab is per event, not per channel), call_logs
-- email_chunks
-- crm_stage_mappings, external_links
-- prospect_calls, sequences, sequence_steps, sequence_enrollments
-- invitations: there is an invite modal, but no pending list, resend, cancel or accept page
+Rules that apply to every screen below (frontend work, not backend):
+- Send `X-Organization-ID` once a user can have several organizations (today the demo user has one, so it is optional).
+- PATCH companies and contacts must send back the `updated_at` they read (409 `COMMON_VERSION_CONFLICT` otherwise).
+- Lists are paginated (page_size at most 100). The mock screens filter the whole list in the browser; the wired screens must page or ask the server (`q`, filters) instead.
+- Money is a per-currency list, never one number.
 
-Used only indirectly (a screen shows data that would come from it, with no screen of its own):
-| Table | Where it would surface |
-|---|---|
-| user_sessions | Security tab sessions (hardcoded today) |
-| teams, team_members | Team tab 'Teams' card is read-only and hardcoded; Member.team is one string, the schema is many-to-many |
-| activities | Deal 'Activity' timeline (built from threads today) |
-| message_recipients | Inbox (not shown) |
-| labels | The 9 reply types (codes differ, section 3) |
-| predictions, prediction_labels, extractions | Review and Inbox type, confidence, facts |
-| corrections | Review type change and reject (not stored) |
-| category_settings | Automation 'By reply type' |
-| reply_drafts | Review |
-| follow_ups | Follow-ups |
-| notifications | Bell (hardcoded) |
-| email_templates, company_facts | Templates, Approved facts |
-| assistant_conversations, assistant_messages, assistant_citations | Agent (not stored) |
-| crm_connections | Integrations HubSpot card |
-| meetings | Calendar |
-| audit_logs | Audit tab |
+## List 1. Screens whose data already has a working endpoint (ready to wire)
 
-## 3. Mismatches: validate.ts / frontend vs SQL / design
-
-Update 2 Nov 2026: cross-checked against docs/nudge_validation_spec_v3_1.md.
-- The rows below are unchanged.
-- Spec differences and the rule we enforce are in BACKEND_PLAN section 6, 'Differences from the validation spec'.
-- New mismatches found through the spec:
-| Field | Frontend | Spec | SQL | Note |
-|---|---|---|---|---|
-| sign-up account type | type 'Individual' or 'Business'; company only for Business; Individual sends no company key | Business needs a company name; Individual uses the user's name | organizations.account_type 1/2, name NOT NULL | Matches. API_CONTRACT register now documents the exact body |
-| users.full_name | 2-80 | 2-150 | varchar(150) | Frontend limit wins (Q-30) |
-| users.email on sign-up | same message for every address | 'already in use' (SRS) | unique | We keep the same answer (BACKEND_PLAN 9, point 8) |
-| control characters | stripped silently | rejected | n/a | Server now rejects |
-| company domain | host only, URL refused | URL accepted, host kept | varchar(253), lower-case | We keep refusing URLs |
-| contact email | required | optional | nullable | Q-14 |
-| contact job_title | <= 80 | <= 100 | varchar(100) | Q-30 |
-| stage name | <= 40 | <= 60 | varchar(60) | Q-30 |
-| deal title | 2-80 | <= 150; duplicates only warn | varchar(150) | Q-30; warning shape pending |
-| deal amount | required, > 0, 2 decimals | optional, >= 0, decimals per currency | numeric(18,2) NULL, >= 0 | Q-18 + ISO minor units |
-| expected close date | not past on create | past allowed | date | Q-18 |
-| PKR decimals | n/a | 0 | n/a | Spec error: ISO 4217 gives PKR 2 |
-| person-name, company-name rules | defined in validate.ts | referenced, never defined | n/a | Gap in the spec |
-| teams, team_members | read-only, hardcoded card | Midterm tables | present | GET /teams/ is midterm; CRUD later |
-
-Lengths
-| Field | Frontend | SQL | Note |
-|---|---|---|---|
-| G-C1 user full name | 2-80 | users.full_name varchar(150) | |
-| G-C1 contact name | one field, 2-80 | first_name varchar(80) NOT NULL, last_name varchar(80) NULL | Split name vs single name |
-| company name | 2-120 | companies.name varchar(150) | |
-| workspace name | 2-120 | organizations.name varchar(150) | |
-| contact title | <= 80 | contacts.job_title varchar(100) | |
-| industry | <= 80 | companies.industry varchar(80) | Match |
-| deal name | 2-80 | deals.title varchar(150) | |
-| stage name | 1-40 | deal_stages.name varchar(60) | |
-| lost reason | one of 5 fixed texts | deals.lost_reason varchar(200) free text | |
-| fact name | 2-60 | company_facts.title varchar(150) | |
-| fact text | 5-200 | company_facts.body text | |
-| template name | 2-80 | email_templates.name varchar(100) | |
-| template body | 5-5000 | email_templates.body text | |
-| subject | 2-200 | email_messages.subject text, email_templates.subject text | |
-| draft / message body | 1-5000 (approve), 5-5000 (compose, follow-up) | reply_drafts.body text | Two different minimums in the frontend |
-| deal note | <= 1000 | no column | |
-| team name | not editable | teams.name varchar(80) | |
-| email | 254, local part 64, ASCII only | varchar(254), CHECK lower-case | Match. Non-ASCII emails refused by the frontend (SECURITY.md) |
-| domain | 253 | varchar(253), CHECK lower-case | Match |
-| password | 8-128 raw | users.password varchar(128) holds the hash | Not a conflict: an Argon2 hash is about 100 characters |
-
-Formats
-| Field | Frontend | SQL | Note |
-|---|---|---|---|
-| phone | optional '+', 7-15 digits, spaces, brackets and dashes allowed | CHECK '^\+[1-9][0-9]{7,14}$' (E.164, '+' required, 8-15 digits, first digit not 0) | A 7-digit number or one without '+' passes the UI and fails the DB |
-| phone (contacts) | same | same CHECK | The design doc says contacts.phone is 'free format from CSV/forms', which contradicts the CHECK |
-| profile phone country code | select of +92, +1, +44, +971, not saved | n/a | Not global |
-| currency | 'USD' or 'PKR' | CHECK '^[A-Z]{3}$' | Any 3 letters pass the DB; the UI allows 2 |
-| amount | required, > 0, < 1e12, 2 decimals | numeric(18,2) NULL, CHECK amount >= 0 | UI forbids 0 and null; DB allows both and up to about 1e16 |
-| expected close | YYYY-MM-DD, <= 2100, not past on create | date NULL | Year limit and 'not past' are UI rules only. The UI also fills '2027-03-31' when empty |
-| time zone | fixed lists of 3 or 4 zones | varchar(64) | Not global |
-| quiet hours | '8:00 PM' text options, on the Workspace tab (organization) | users.quiet_hours_start/end time, per user | Level differs: organization in the UI, user in the DB |
-| confidence | integer 0-100, bar 60-99, default 85 | predictions.decision_score numeric(4,3) 0-1; category_settings.min_score numeric(4,3) default 0.900 | Scale (x100) and default (85 vs 90) differ |
-| money totals | USD only on Companies, Home pipeline and Reports | grouped by currency (design rule) | The frontend drops non-USD from those totals |
-
-Allowed values
-| Field | Frontend | SQL | Note |
-|---|---|---|---|
-| roles | Owner, Admin, Member (invite: Member or Admin) | 1 Owner, 2 Admin, 3 Manager, 4 Member | Manager missing in UI |
-| member status | Active, Invited | memberships 1 Active, 2 Suspended, 3 Removed; 'Invited' = invitations row | |
-| contact status | Active, Opted out, Suspended | opted_out_at only | |
-| company size | free text: '11–50', '51–200', '201–500', '501–1000', '1001+' | size_range 1 1-10, 2 11-50, 3 51-200, 4 201-500, 5 500+ | '501–1000' and '1001+' do not map; 5 is '500+' |
-| deal stage | 7 fixed slugs: new, contacted, meeting, proposal, negotiation, won, lost | deal_stages rows (uuid) with outcome 1 Open, 2 Won, 3 Lost | Editable stages in Settings are never used by deals |
-| stage rules | Won and Lost fixed last; first stage fixed first; at most 12 | none in SQL | Service rules only |
-| reply type codes | meeting, pricing, objection, defer, referral, notinterested, optout, ooo, unclear | labels: meeting_request, pricing_request, objection, defer, referral, not_interested, opt_out, out_of_office, unclear, other | 5 codes differ; 'other' has no UI |
-| reply type label | 'Pricing question' (seed), 'Pricing request' (onboarding) | 'Pricing request' | |
-| mailbox provider | Google, Microsoft | 1 Gmail, 2 IMAP/SMTP, 3 Outlook (FYP-II) | IMAP has no UI; Outlook is FYP-II |
-| mailbox status | ok, expired | 1 Active, 2 Error, 3 Disconnected | Disconnect in UI deletes the row; design keeps it with status 3 |
-| review status | pending, approved, rejected, skipped | reply_drafts 1 Draft, 2 Approved/queued, 3 Sent, 4 Failed, 5 Discarded/undone | No 'skipped', no 'sent' or 'failed' in UI |
-| thread status | waiting (for you), done (replied), none (no reply needed) | 1 Open, 2 Waiting on them, 3 Closed | Different meaning |
-| follow-up | done boolean, due text | type 1-4, status 1 Open, 2 Snoozed, 3 Done, 4 Cancelled, due_at, close_reason | |
-| integrations | google, microsoft, calendar, slack, hubspot, webhooks | crm_connections 1 HubSpot, 2 Generic | |
-| visibility | none in UI (everyone sees everything) | 1 Private (default), 2 Team, 3 Organization | With the DB default, a Member's new records are hidden from other Members |
-| audit action | free text ('Approved reply') | CHECK '^[a-z_]+\.[a-z_]+$' | Server must map codes to text |
-
-Uniqueness
-| Field | Frontend | SQL | Note |
-|---|---|---|---|
-| G-C3 company | name unique ignoring case | domain unique per organization among live rows; name only indexed | Each side checks a different field |
-| contact | email unique ignoring case, email required | (organization_id, email) unique among live rows; email nullable | Match on uniqueness (DB stores lower-case); required differs |
-| stage, template, fact names | unique ignoring case | stages: unique lower(name) per organization; templates and facts: no unique rule | Templates and facts uniqueness are service rules only |
-| team name | n/a | unique lower(name) per organization | |
-
-Rules that disagree between the frontend and the design doc
-| Topic | Frontend | Design doc |
+| Screen | Endpoint | Fields the screen shows that the API does not return (or needs changed) |
 |---|---|---|
-| Email verification | 6-digit code, 10 min, resend after 42 s | Section 2 'users': signed links, no token table. Section 12 M1: code in Redis, 10 min, resend 30 s |
-| Undo after approve | 'Undo within 7 days' | send_after undo hold of 10 minutes (REQ-SF-03, P20) |
-| Unlock automation | after 50 approvals, one global switch | design landing text: per reply type, after 50 approved reviews; category_settings per label |
-| Who sees the audit log | every member | not stated |
-| Migrations | (user decision) unmanaged models, SQL file is the source of truth | Section 12: 'Django migrations own the tables; this SQL file is the reference' |
-| Money precision | n/a | Section 0.2 says numeric(12,2); P10 and the SQL use numeric(18,2) |
+| Sign up, Verify, Sign in, Reset, New password, sign out, session restore (`/sign-up`, `/verify`, `/sign-in`, `/reset`, `/new-password`) | Already wired: register, verify, resend, login, refresh, logout, reset, reset/confirm, me | Nothing missing. `MeDto` in src/api/client.ts reads only name, email, type, verified; `me` also returns phone, timezone, quiet hours, organization, role, organizations (unused so far). |
+| App shell: top bar workspace name and switcher, account menu | GET /auth/me/ (`organization`, `organizations`, `role`, `name`, `email`) | The switcher shows a hard-coded "Acme Sales". "New workspace" has no endpoint (stays a toast). |
+| Settings > Security > Password | Already wired: POST /auth/password/ | Nothing missing. After a change the other devices are signed out (the mock "Active sessions" list does not reflect that). |
+| Settings > Profile | GET and PATCH /auth/me/ | Email is hard-coded in the form (use `me.email`). Phone: the form has a country-code select plus digits, the API wants one E.164 string (`+923005550142`) and refuses a number without `+`. The time-zone select lists 4 zones; the API accepts any IANA name. |
+| Settings > Workspace: name, time zone | GET and PATCH /organizations/current/ | The "Default currency" select has no backend (removed by decision Q-11; the frontend still shows it). The form has one time-zone select; the API has two (user and organization). |
+| Settings > Workspace: Quiet hours | PATCH /auth/me/ (`quiet_hours_start`, `quiet_hours_end`) | The UI stores text like "8:00 PM"; the API wants "HH:MM" on a 24-hour clock, both set or both null (the on/off toggle = both null). They are a per-user setting shown inside the workspace tab. |
+| Settings > Workspace: Deal stages editor, Onboarding step 4 does not use it | GET, POST, PATCH, PUT order, DELETE /deal-stages/ | The editor edits a whole list and saves once; the API is one call per change (rename, add, delete, reorder), so the Save button must diff and call. Won and Lost fixed, 40-character names, first stage not movable: the UI rules already match. The API also returns `deal_count` per stage (not shown). |
+| Companies list (`/app/companies`) | GET /companies/ (`q`, `ordering`, `owner_id`, pages) | Not returned: **location**, **website** (only `domain`). Search by location is not possible. "Open value" shows USD only; the API returns one total per currency. The page filters in the browser; it must use `q` and paging. |
+| Add company | POST /companies/ | The form sends name, domain, industry; the API also takes size_range, owner_id, visibility, team_id. 409 `CRM_COMPANY_NAME_TAKEN` / `CRM_COMPANY_DOMAIN_TAKEN` replace the local duplicate check. |
+| Company detail > About and People | GET /companies/{id}/, GET /contacts/?company_id= | Not returned: **location**, **website**. Size shows as "1-10" style text. Owner comes as `{id, name}`. |
+| Contacts list (`/app/contacts`) | GET /contacts/ (`q`, `status`, `owner_id`, `company_id`, `ordering`, pages) | Not returned: **location**, **Suspended** status (API has active and opted_out only), **last contact** (always null until mail exists). The owner filter lists hard-coded names; the API filters by `owner_id` and there is no endpoint yet to list owners (see list 2, members). The form has one full-name field; the API has first_name and last_name (split in the frontend). Title is called `title` in the API. |
+| Add contact (and "Add person" on a company) | POST /contacts/ | Email is required (the form already requires it). The 409 `CRM_CONTACT_EMAIL_TAKEN` can carry `existing` to link to the other contact. Phone must be E.164 with `+`. |
+| Contact detail > Profile | GET /contacts/{id}/ (PATCH for edits, DELETE) | Not returned: **location**, **last contact**. There is no edit form in the UI yet. |
+| Import CSV (contacts) | POST /contacts/ once per row (frontend loop) | The server-side import endpoint is "later"; a loop is possible for the 500-row limit but slow (see list 2). Export CSV is client-side and would only cover the loaded page. |
 
-Other findings
-- Sign-in hint shows 'mahad@acme.com' while the mock user is 'mahad@acme.co'.
-- Demo texts render in real mode as well: sign-in demo credentials, verify demo code, 'Reset demo data'.
-- Client maps every 401 to 'session ended' and redirects. A wrong password on /auth/login/ would show the expired-session screen, not 'That email and password do not match.' The same applies to verify (400 -> generic 'Check the highlighted fields').
-- Client has no refresh step. After a reload the access token is gone, and /auth/me/ with no token returns 401 -> signed out.
-- Client does not send X-Organization-ID.
-- Login, register and reset need CSRF, but nothing calls GET /auth/csrf/ first.
+## List 2. Screens that need a backend endpoint that does not exist yet
+
+Size guesses are for one developer who already knows the module patterns: small = under half a day, medium = about a day, large = more than a day.
+
+### Needed for the midterm
+
+| Screen / feature | Endpoint needed | Size | Why it is needed |
+|---|---|---|---|
+| Contact detail: "Mark opted out" / "Remove opt-out" and the amber banner | POST and DELETE /contacts/{id}/opt-out/ (DELETE is Owner/Admin only, Q-17) | small | In the contract as [midterm]; the button is on the contact screen of the demo path. The `status` field and filter already read `opted_out_at`. |
+| Owner filters and owner pickers (Contacts, Pipeline, Add deal); Settings > Team people list | GET /members/ (read only) | small | The screens use hard-coded owner names. Without it a user cannot filter by anyone but themselves. |
+| Settings > Team > Teams box | GET /teams/ (read only) | small | Shows team names and members; also what "team" visibility needs to be usable in the UI. |
+| Pipeline board, Add deal, Mark as lost, Deal detail, "Deals" lists on company and contact detail, Home "Open pipeline" numbers | /deals/ list, create, get, update with `version`, delete, move stage (with lost reason), /deals/summary/ | large | Whole pipeline screen group; also the deals half of the company and contact pages and the numbers on Home. Needs the version check, closed_at rules, currency per deal. |
+| Settings > Security > Active sessions | GET /auth/sessions/, DELETE /auth/sessions/{id}/ | small | [midterm] in the contract; the list is mock today. Location text ("Karachi, PK") has no source (GeoIP is later). |
+
+### After the midterm
+
+| Screen / feature | Endpoint needed | Size | Note |
+|---|---|---|---|
+| Settings > Audit log (read, filter, export) | GET /audit-logs/ (Owner/Admin, cursor pages) | medium | The rows are already written by every write. The screen shows "who" as a name and "on" as a label; `details.label` covers "on". |
+| Review (approve, reject with reason, skip, edit draft, suggested actions, facts used) | /reviews/ list, approve, reject, skip, reply type change | large | Needs reply_drafts, predictions and the ML pipeline; several columns are schema gaps (G-A7). |
+| Inbox (threads, messages, "New email") | /threads/, /messages/, send | large | Needs mailbox sync and email_threads/messages. |
+| Mailboxes (connect Google or Microsoft, reconnect, disconnect) and onboarding step 1 | OAuth start/callback, /mailboxes/ | large | Gmail/Graph OAuth, token storage. |
+| Settings > Approved facts and onboarding step 2 | /facts/ CRUD | medium | company_facts exists; `kind` is not on the screen (default 4). |
+| Templates | /templates/ CRUD | medium | email_templates exists; "uses" is a count of drafts. |
+| Follow-ups | /follow-ups/, snooze, done, send | medium | follow_ups exists; sending depends on the email pipeline. |
+| Calendar (events, "Confirm hold") | /meetings/ | large | G-A11: no "hold" status. |
+| Settings > Automation (mode, confidence bar, per-type) and onboarding step 3 | /settings/automation/ | medium | Schema gap M9: no organization column for global mode or one threshold. Needs a schema decision first. |
+| Settings > Notifications | /notifications/settings/ | medium | G-A10: the screen is per event, the table is per channel. |
+| Settings > Integrations (Slack, Calendar, Webhooks, HubSpot) | several | large | Schema gap M13. |
+| Settings > Team: invite, change role, remove, resend | /invitations/, PATCH/DELETE /members/{id}/ | medium | Needs the last-owner rule and invitation emails (the sender exists). |
+| Settings > Security > Two-step sign-in | TOTP setup and verify | large | G-A9: no column for the secret. |
+| Agent chat (page and side panel) | /assistant/ conversations | large | FYP-II tables. |
+| Home dashboard (waiting count, approved today, week bars, reply-type mix), Reports | /dashboard/, /reports/ | large | Mostly derived from reviews and predictions; the pipeline half can reuse /deals/summary/. |
+| Command palette search (people, deals, emails) | search over contacts, deals, threads | medium | Contacts and companies can already be searched with `q`; deals and emails cannot. |
+| Contact "location", "Suspended", "last contact"; company "location", "website" | none | not a backend task | G-A3: no columns. Remove from the screens, or take a schema decision. |
+
+## List 3. Recommended order for the next four days (10 to 13 Nov; 14 Nov is the buffer and the demo)
+
+Demo path: sign up, sign in, profile, organization, stages, companies, contacts. Everything on that path already has an endpoint, so the first two days are frontend wiring with only small backend additions on the side.
+
+| Day | Frontend wiring (the other window) | Backend (this repository) |
+|---|---|---|
+| **Mon 10 Nov** | Run `seed_demo` on the real nudge database. Switch the shell to `GET /auth/me/` (name, workspace name). Wire Settings > Profile (PATCH /auth/me/, E.164 phone) and Settings > Workspace (organization name and time zone, quiet hours, remove the currency select). Add a small typed API module for the crm calls (CSRF is not needed for bearer calls). | Contact opt-out and opt-in endpoints (small). Read-only /members/ and /teams/ (small). Fix anything the first real wiring reveals. |
+| **Tue 11 Nov** | Wire the stage editor (diff then call), Companies list and add (server `q`, paging, 409 messages), Company detail (About, People). | Start deals: model, repository, list, get, create, update with `version`, delete, move stage with lost reason and closed_at (the largest piece). Real-mode CSRF/refresh issues from wiring come first. |
+| **Wed 12 Nov** | Wire Contacts list, add, detail, opt-out toggle, owner filter from /members/; CSV import as a loop; split full name into first and last. | Finish deals: /deals/summary/, visibility, cross-organization tests, audit; add deals and teams to `seed_demo`; optional sessions list endpoints (small). |
+| **Thu 13 Nov** | Wire Pipeline board, Add deal, Mark lost, Deal detail, the deals lists on company and contact pages, Home pipeline numbers. Everything else (Review, Inbox, Mailboxes, Facts, Templates, Follow-ups, Calendar, Agent, Reports, Automation, Notifications, Integrations) stays on mock data, labelled as a preview. | Bug fixing, query-count and tenant checks on deals, doc updates, review zip. |
+| **Fri 14 Nov** | Buffer and demo rehearsal: sign up, verify, sign in, edit profile, rename the organization, edit stages, add a company and a contact, open the pipeline. | Buffer. No new features. |
+
+Risks to watch:
+- If deals slip, the demo path (sign up to contacts) still works; the Pipeline screen would stay on mock data.
+- Wiring is the first time the real API meets the real UI: expect small contract differences (field names, error codes). Budget the first half of each day for them.
+- The demo user must be created with `seed_demo` on the real database by the user (the backend work never runs it).

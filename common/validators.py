@@ -71,6 +71,7 @@ FRONTEND_COMMON_PASSWORDS = frozenset(
 )
 
 
+_DOMAIN = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}", re.ASCII)
 _TIME_OF_DAY = re.compile(r"([0-9]{2}):([0-9]{2})")
 
 
@@ -128,6 +129,28 @@ def validate_person_name(raw: object) -> str:
 
 def validate_company_name(raw: object) -> str:
     return validate_name(raw, min_len=Limits.COMPANY_MIN, max_len=Limits.COMPANY)
+
+
+def validate_domain(raw: object) -> str:
+    """A lower-case host name with at least one dot. A URL is refused, not trimmed (Q-16)."""
+    value = _required_text(raw).strip().lower()
+    if len(value) > Limits.DOMAIN or not _DOMAIN.fullmatch(value):
+        raise InvalidValue(Messages.VALIDATION_DOMAIN_INVALID)
+    return value
+
+
+def validate_optional_text(raw: object, *, max_len: int) -> str | None:
+    """Free text that may be empty: null or blank means "none"."""
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        raise InvalidValue(Messages.VALIDATION_INVALID_TYPE)
+    if has_control_chars(raw):
+        raise InvalidValue(Messages.VALIDATION_CONTROL_CHARS)
+    value = clean(raw)
+    if len(value) > max_len:
+        raise InvalidValue(Messages.VALIDATION_TOO_LONG, max_len)
+    return value or None
 
 
 def validate_phone(raw: object) -> str:

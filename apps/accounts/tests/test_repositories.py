@@ -180,9 +180,12 @@ def test_list_active_for_user_is_oldest_first_and_skips_closed_organizations(
         make_organization("Second"),
         make_organization("Closed"),
     )
-    make_membership(first.id, user.id, Role.OWNER)
-    make_membership(second.id, user.id, Role.MEMBER)
-    make_membership(closed.id, user.id, Role.ADMIN)
+    # Inside one test transaction now() is the same for every row, so give them distinct ages.
+    for age, (org, role) in enumerate(
+        [(first, Role.OWNER), (second, Role.MEMBER), (closed, Role.ADMIN)]
+    ):
+        made = make_membership(org.id, user.id, role)
+        MembershipModel.objects.filter(id=made.id).update(created_at=NOW + timedelta(seconds=age))
     OrganizationModel.objects.filter(id=closed.id).update(deactivated_at=NOW)
     found = memberships.list_active_for_user(user.id)
     assert [(item.organization.name, item.membership.role) for item in found] == [

@@ -19,7 +19,9 @@ from apps.accounts.repositories.user_repository import PostgresUserRepository
 from apps.accounts.repositories.verification_code_repository import CacheVerificationCodeRepository
 from apps.accounts.services.authentication_service import AuthenticationService
 from apps.accounts.services.me_service import MeService
+from apps.accounts.services.organization_service import OrganizationService
 from apps.accounts.services.password_service import PasswordService
+from apps.accounts.services.profile_service import ProfileService
 from apps.accounts.services.registration_service import RegistrationService
 from apps.accounts.services.reset_token_service import ResetTokenService
 from apps.accounts.services.session_service import SessionService
@@ -30,14 +32,23 @@ from apps.accounts.services.verification_code_service import VerificationCodeSer
 from apps.accounts.services.verification_service import VerificationService
 from apps.audit.repositories.audit_repository import PostgresAuditRepository
 from apps.audit.services.audit_service import AuditService
+from apps.crm.repositories.company_repository import PostgresCompanyRepository
+from apps.crm.repositories.contact_repository import PostgresContactRepository
 from apps.crm.repositories.stage_repository import PostgresStageRepository
+from apps.crm.services.company_service import CompanyService
+from apps.crm.services.company_validator import CompanyValidator
+from apps.crm.services.contact_service import ContactService
+from apps.crm.services.contact_validator import ContactValidator
+from apps.crm.services.link_service import LinkService
 from apps.crm.services.stage_service import StageService
+from apps.crm.services.stage_validator import StageValidator
 from common.attempts import AttemptLimiter
+from common.email_templates.renderer import EmailRenderer
 from common.health.repositories.health_repository import PostgresHealthRepository
 from common.health.services.health_service import HealthService
 from common.infra.cache import DjangoCache
 from common.infra.clock import SystemClock
-from common.infra.email import DjangoEmailSender
+from common.infra.email import DjangoEmailSender, HtmlEmailSender, QuietEmailSender
 from common.infra.ids import UuidV7Generator
 from common.infra.unit_of_work import DjangoUnitOfWork
 from common.interfaces import (
@@ -51,6 +62,7 @@ from common.interfaces import (
     TokenSigner,
     UnitOfWork,
 )
+from common.management.demo_seeder import DemoSeeder
 from common.security.argon2_password_hasher import Argon2PasswordHasher
 from common.security.hmac_hasher import HmacHasher
 from common.security.jwt_token_signer import JwtTokenSigner
@@ -70,8 +82,19 @@ def cache_store() -> Cache:
     return DjangoCache(caches["default"])
 
 
+@cache
+def email_renderer() -> EmailRenderer:
+    return EmailRenderer(clock())
+
+
 def email_sender() -> EmailSender:
-    return DjangoEmailSender()
+    """Strict: a delivery failure becomes ServiceUnavailable (503)."""
+    return HtmlEmailSender(DjangoEmailSender(), email_renderer())
+
+
+def quiet_email_sender() -> EmailSender:
+    """A failure is logged and swallowed. For paths whose answer must not depend on delivery."""
+    return QuietEmailSender(email_sender())
 
 
 def unit_of_work() -> UnitOfWork:
@@ -112,7 +135,9 @@ def audit_writer() -> AuditWriter:
 
 
 def stage_service() -> StageService:
-    return StageService(PostgresStageRepository(), ids())
+    return StageService(
+        PostgresStageRepository(), ids(), audit_writer(), unit_of_work(), StageValidator()
+    )
 
 
 # -- Accounts ----
@@ -123,7 +148,7 @@ def verification_code_repository() -> CacheVerificationCodeRepository:
 
 
 def verification_code_service() -> VerificationCodeService:
-    return VerificationCodeService(verification_code_repository(), email_sender())
+    return VerificationCodeService(verification_code_repository(), quiet_email_sender())
 
 
 def me_service() -> MeService:
@@ -173,7 +198,7 @@ def registration_service() -> RegistrationService:
         memberships=PostgresMembershipRepository(),
         stage_seeder=stage_service(),
         codes=verification_code_service(),
-        email=email_sender(),
+        email=quiet_email_sender(),
         hasher=password_hasher(),
         digests=digests(),
         audit=audit_writer(),
@@ -212,9 +237,67 @@ def password_service() -> PasswordService:
         digests=digests(),
         tokens=reset_token_service(),
         sessions=session_service(),
-        email=email_sender(),
+        email=quiet_email_sender(),
         audit=audit_writer(),
         uow=unit_of_work(),
         limiter=attempt_limiter(),
         frontend_url=settings.FRONTEND_URL,
+    )
+
+
+def profile_service() -> ProfileService:
+    return ProfileService(
+        validator=UserValidator(),
+        users=PostgresUserRepository(),
+        me=me_service(),
+        audit=audit_writer(),
+        uow=unit_of_work(),
+    )
+
+
+def organization_service() -> OrganizationService:
+    return OrganizationService(
+        validator=UserValidator(),
+        organizations=PostgresOrganizationRepository(),
+        audit=audit_writer(),
+        uow=unit_of_work(),
+    )
+
+
+def company_service() -> CompanyService:
+    return CompanyService(
+        PostgresCompanyRepository(),
+        ids(),
+        audit_writer(),
+        unit_of_work(),
+        CompanyValidator(),
+        clock(),
+        LinkService(PostgresCompanyRepository()),
+    )
+
+
+def contact_service() -> ContactService:
+    return ContactService(
+        PostgresContactRepository(),
+        ids(),
+        audit_writer(),
+        unit_of_work(),
+        ContactValidator(),
+        clock(),
+        LinkService(PostgresContactRepository()),
+    )
+
+
+def demo_seeder() -> DemoSeeder:
+    return DemoSeeder(
+        users=PostgresUserRepository(),
+        organizations=PostgresOrganizationRepository(),
+        memberships=PostgresMembershipRepository(),
+        stages=stage_service(),
+        companies=company_service(),
+        contacts=contact_service(),
+        hasher=password_hasher(),
+        ids=ids(),
+        clock=clock(),
+        uow=unit_of_work(),
     )

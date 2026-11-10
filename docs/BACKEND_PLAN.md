@@ -383,11 +383,14 @@ Defaults I chose where the docs were silent. Tell me to change any of them.
 4. Verification codes and sign-up/resend limits are keyed by the HMAC of the email (EMAIL_HASH_KEY), so a known and an unknown address behave identically, including the 5-try lock.
 5. After verifying, the session is a 1-day session with a session cookie (`remember` = false). "Keep me signed in" belongs to the login form (A5).
 6. A second sign-up or resend for the same address within 30 seconds is refused for every address, known or not.
-7. Sign-up with a known address (changed 9 Nov 2026, user decision; fixes an account pre-hijack):
-   - Known, unverified address: the latest sign-up wins. In one transaction the password hash, name, timezone, organization name, type and timezone are replaced, and `user.register_replace` is audited (SYSTEM actor, email HMAC only). The earlier verification code is invalid because a new code replaces it (the wrong-try counter starts again), and the new code is emailed. The update only applies while `email_verified_at` is still null, so a verification that lands first is never overwritten; then the verified-address path runs.
-   - Known, verified address: nothing is changed; the "someone tried to sign up" notice is sent and `user.register_existing` is audited.
-   - Both answer the same 202 as a new address.
-   - Remaining risk: if an attacker signs up with the victim's email AFTER the victim, and the victim then types the code from the attacker's email (the new code replaces the victim's), the account holds the attacker's password and the attacker can sign in with it. This needs the victim to verify a code they did not ask for at that moment; the code email goes only to the victim's mailbox. Mitigations in place: 30 s between sign-ups per email, 10 sign-ups per hour per IP, the code arrives with the subject "Your Nudge verification code" and says nothing else. Possible later hardening: say in the code email that the code belongs to a sign-up with a given name, and force a password reset on first sign-in after a replacement.
+7. Sign-up with a known address (changed 9 Nov 2026, twice; user decisions; fixes an account pre-hijack):
+   - Known, unverified address whose verification code has EXPIRED (more than 10 minutes since the last code): the latest sign-up wins. In one transaction the password hash, name, timezone, organization name, type and timezone are replaced, `user.register_replace` is audited (SYSTEM actor, email HMAC only), and a new code is emailed. The update only applies while `email_verified_at` is still null.
+   - Known, unverified address whose code is still LIVE: treated exactly like a verified address. Nothing changes, no code is invalidated, the owner gets the "someone tried to sign up" notice, and the response, the slow hashing work and the audit row (`user.register_existing`) are the same.
+   - Known, verified address: nothing is changed; the notice is sent and `user.register_existing` is audited.
+   - All cases answer the same 202 as a new address.
+   - Remaining risks, honestly:
+     1. An attacker who signs up with the victim's email FIRST gets a live code mailed to the victim, and for 10 minutes the victim's own sign-up cannot replace it. If the victim types that code (the attacker's), the account has the attacker's password. The victim's mailbox is the only place the code goes, the email says nothing about who asked, and the sign-up is limited to 1 per 30 s per email and 10 per hour per IP. Later hardening: say in the code email which name the sign-up used, and force a password reset on the first sign-in after a verification whose sign-up was not the latest.
+     2. An attacker can keep an unverified address "reserved" by re-registering it every 10 minutes (costing them one email to the victim each time). A victim who gets locked out this way can use "forgot password" (works for unverified accounts, does not verify the email) and then the 6-digit code from resend.
 8. The midterm limiter is a fixed window in the shared cache. The cache fails closed: if it is down, the endpoint answers 503. The token bucket and the Redis script stay postponed.
 9. Access tokens are signed with PyJWT directly, because token expiry must follow the injected clock (tests move time). SimpleJWT was removed from requirements and the venv on 9 Nov 2026 (approved).
 10. Repositories use unmanaged Django models (your original decision), private to each `repositories/models.py`.
@@ -430,6 +433,87 @@ Defaults I chose where the docs were silent. Tell me to change any of them.
 10. GET /auth/me/ returns the oldest active membership as current until X-Organization-ID is added in A7.
 11. Every API class is private by default (settings: AccessTokenAuthentication + IsAuthenticated). The DRF class sits in config/authentication.py (the composition root), because CODING_STYLE only allows `<entity>_api.py` files in api/.
 12. Password change and reset send a "your password was changed" email that links to /sign-in. Reset and change both use a conditional UPDATE on the old hash, so two concurrent uses cannot both win.
+
+## 9e. Assumptions made while building A7, profile, organization and stages (9 Nov 2026)
+
+Defaults I chose where the docs were silent. Tell me to change any of them.
+1. The class is called `TenantApi` (not TenantAPIView), because CODING_STYLE names classes `<Thing>Api`. It lives in `config/tenancy.py` next to `config/authentication.py`.
+2. Membership and role are read on every tenant request (two small queries: memberships and organizations). A removed, suspended or demoted member is stopped on the next request. Caching this is a later optimisation.
+3. A malformed or empty X-Organization-ID is 404, the same as a foreign one. The header is optional only when the user has exactly one active membership.
+4. GET /auth/me/ and PATCH /auth/me/ accept the header too (so the frontend can ask "who am I in this workspace"); without it, the oldest membership is current.
+5. Role checks happen twice on purpose: in `TenantApi` (before the body is read) and again in the service.
+6. PATCH with an empty body is 200 and changes nothing (no audit row). Unknown fields are 400.
+7. Organization and profile audit rows store field names only, never values. Stage audit rows store stage names (business labels, not personal data).
+8. Deleting a stage is refused (409 CRM_STAGE_IN_USE) when ANY deal points at it, soft-deleted ones included, because the foreign key (RESTRICT) would otherwise fail with a 500. API_CONTRACT said "live deals"; this is stricter.
+9. A new stage is inserted before the first Won or Lost stage; Won and Lost move up by one. Names are compared with casefold, and the database unique index (organization, lower(name)) is the second guard.
+10. Stage name limit 40 (API_CONTRACT) although the column allows 60. At most 12 stages.
+11. GET /organizations/ (the workspace switcher list) was not built; the `organizations` list in GET /auth/me/ already carries it.
+12. The stage rules are tested through the real repository on nudge_test (service tests with a fake stage repository were skipped, because the rules depend on row locks and the unique index).
+
+## 9f. Assumptions made while building companies (9 Nov 2026)
+
+Defaults I chose where the docs were silent. Tell me to change any of them.
+1. Any active member can create, edit and delete a company they can SEE (BACKEND_PLAN section 4: "Member: CRUD on visible records"). Visibility: Owner and Admin see every live row; everyone else sees organization-wide rows, rows they own and team rows of their own teams. A row you cannot see is 404 for read, update and delete.
+2. Search (`?q=`) is a case-insensitive "contains" match on name, domain and industry within the organization's visible live rows. That uses the organization index but is not an index lookup on the text, so it scans one organization's companies. For midterm sizes that is fine; a trigram index would be a schema change and needs your OK.
+3. The ordering allowlist is exactly `name` (default, case-insensitive, uses ix_companies_2) and `-created_at`. Contacts will reuse the same helper (`common/pagination.py`: page, page_size 1-100, q 2-100 characters, ordering, typed filters, unknown parameters are 400 and named).
+4. The list runs five queries however many companies: count, page, owner names, contact counts, open-deal totals. A test fixes this. The detail endpoint uses the same code for one row.
+5. `open_deal_count` / `open_value` count live deals in OPEN stages only, grouped per currency, never summed across currencies. `people_count` counts live contacts.
+6. PATCH needs `updated_at` exactly as read (ISO 8601 with the offset). The write runs `WHERE updated_at = ?`, using the application clock for the new `updated_at` (a database `now()` would not change inside one transaction). A stale value is 409 COMMON_VERSION_CONFLICT with `current`. A PATCH that changes nothing returns 200 without writing or auditing.
+7. Name uniqueness among live rows is a service check made under a per-organization advisory lock (the database only has a plain index). Domain uniqueness has the partial unique index as the final guard.
+8. For `visibility: team` the caller must belong to the team, except Owner and Admin who may use any team of the organization. Moving away from team visibility drops the team automatically.
+9. The owner of a company must be an active member of the organization; whoever creates a private company for a colleague still gets the reply even though they cannot read it afterwards.
+10. Audit rows: `company.create`, `company.update` (details: label and `{field: {from, to}}`), `company.delete`. Values are business fields (names, domains, ids), no personal data.
+11. Soft-deleting a company leaves its contacts and deals pointing at it (they keep working); no cascade.
+12. The `Page` links (`next`, `previous`) are absolute URLs with the same filters and page size.
+13. Part 1b: I also converted the `@staticmethod` helper in profile_service.py (written last run), five in total.
+
+## 9g. Assumptions made while building contacts and seed_demo (9 Nov 2026)
+
+Defaults I chose where the docs were silent. Tell me to change any of them.
+1. Contacts reuse everything companies decided (9f): visibility, any member who can see a row may edit or delete it, `updated_at` check, contains-search without a new index.
+2. The default order is last name then first name (ix_contacts_2). Contacts without a last name sort after those with one, because PostgreSQL sorts NULL last.
+3. A contact's company is named only if the caller can see that company, so a private company's name does not leak through a visible contact; the company link must also be a visible company of this organization when you set it.
+4. The 409 for a duplicate email adds `existing: {id, name}` only when the caller can see that contact. A private contact is not revealed (tested both ways).
+5. Email cannot be cleared on PATCH for any contact (null is VALIDATION_REQUIRED). The contract limits this to manual contacts; every contact is manual until the CSV import exists.
+6. The audit row of a contact write holds the label (the contact's name) and, for personal fields (names, email, phone, title), only the word "changed", never the values. Owner, company, visibility and team changes keep from/to.
+7. Not built yet, though [midterm] in the contract: POST and DELETE /contacts/{id}/opt-out/ (and `last_contact_at`, which is null until mail exists). The `status` filter and field already read `opted_out_at`.
+8. seed_demo guard: dev settings module + DEBUG on + connected database equals DEV_DATABASE_NAME (new setting, the name from DATABASE_URL). Under the test settings it refuses, so the seeder class is tested directly on nudge_test and the command is tested only for refusing.
+9. The demo Owner's email is random (demo-xxxxxxxx@example.com) and the password is random; both appear only on the console. The workspace is found by its name ("Nudge Demo Workspace"), companies by name and contacts by email, so a second run adds nothing; after a first run a lost password is replaced with `--reset-password`.
+10. seed_demo writes through the real services, so the demo data is validated and audited (8 `company.create` and 25 `contact.create` rows). It creates no teams and no deals yet (no module for them), and no opted-out contacts.
+11. Phone numbers in the demo data are made-up Pakistani mobile numbers that pass the real validator.
+
+## 9h. Email through SMTP (9 Nov 2026)
+
+What was built and the choices I made. Tell me to change any of them.
+1. Settings come from separate environment variables (the old single EMAIL_URL is gone): EMAIL_BACKEND (default: the console backend), EMAIL_HOST (localhost), EMAIL_PORT (25), EMAIL_USE_TLS (False), EMAIL_HOST_USER, EMAIL_HOST_PASSWORD, DEFAULT_FROM_EMAIL, EMAIL_TIMEOUT (10 seconds). SMTP is used only when EMAIL_BACKEND is `django.core.mail.backends.smtp.EmailBackend`. `.env.example` has the names and no value for the password. Your private `.env` may still hold an old EMAIL_URL line; it is ignored now and can be deleted.
+2. Startup checks: a timeout of 0 or less stops the start (dev and prod); production also refuses a backend that delivers nothing (console, in-memory, dummy, file). Messages name the setting, never a value.
+3. Test settings always use the in-memory backend, whatever `.env` says; failure tests use a fake backend that raises. No test opens a network connection.
+4. The failure log is one ERROR line: error class, SMTP status code (if any), errno (if any), subject. No traceback, no exception text (a server reply can echo a login), no recipient, no body, no settings.
+5. Which paths hide a failure, and why (chosen per path in the container):
+   | Path | On SMTP failure | Why |
+   |---|---|---|
+   | POST /auth/register/ | 202, logged | An unknown address sends a code and a known one a notice, but a 503 on some of them would let a prober see which addresses behave differently when the server flaps. |
+   | POST /auth/resend/ | 202, logged | Only an existing unverified account sends mail; a 503 there would reveal exactly that. |
+   | POST /auth/reset/ | 202, logged | Only an existing active account sends the link; a 503 would reveal the account. |
+   | Notice after POST /auth/password/ and /auth/reset/confirm/ | 204, logged | The password is already changed and every session ended; a 503 would tell the client it failed when it did not. |
+   | Anything that must be sent and has no secret to protect (send_test_email, a future invitation) | 503 COMMON_SERVICE_UNAVAILABLE, logged | The caller needs to know. Never 500. |
+   Today every API path that sends mail is in the first four rows, so no current endpoint answers 503 for a mail failure; the strict sender exists for the command and for what comes next.
+6. Cost of hiding failures: when SMTP is down, a new user gets "a code is on its way" and nothing arrives, and the only signal is the ERROR log line. A monitor on `Email delivery failed` is needed before real users. Resend and reset can be repeated by the user (1 per 30 s per address, 3 per hour for reset).
+7. Sending is still synchronous, so a dead SMTP server delays each of these requests by up to EMAIL_TIMEOUT seconds. A queue (after the midterm) removes that delay and the timing difference between "sent" and "nothing to send".
+8. `send_test_email <address>` (development only, same guard as seed_demo: dev settings, DEBUG on, dev database) sends one message through the strict sender and says only that it worked or that it failed (the reason is in the log). Tests only check that it refuses elsewhere and sends nothing.
+9. `NUDGE_ENV_FILE` (new, optional) points the settings at another env file; the tests use it to start a fresh process with no `.env`.
+
+## 9i. Designed HTML emails (10 Nov 2026)
+
+The verification code, the "someone tried to sign up" notice and the password-reset email are now multipart/alternative: a plain-text part (exactly as before) and an HTML part. Tell me to change any of these choices.
+1. Design (polished 10 Nov 2026, colours from the app's Nudge-frontend/src/styles/tokens.css): light by default, white page, white card (12px radius, #d9d9d9 border) topped by a 3px green (#3ecf8e) line, then a 40px logo mark (the favicon: #171717 rounded square, white dot, green chevron, drawn as a table cell with text characters, no image) beside the word Nudge. Heading 28px bold, body 16px at line-height 1.6, padding 40px (24px on phones, one column). The code is 40px monospaced with 10px letter spacing in a #f2f2f2 box with a thin border, and a small line below it with the validity. Buttons are black, white text, 14px vertical padding, 8px radius, full width on phones, with the plain link below. Footer: a divider, a line saying the mail was sent automatically and replies are not monitored, and "Nudge © <year>" (the year comes from the injected Clock). Dark mode (`prefers-color-scheme`) is pure black and grey (#000, #ededed, #333, inverted button), no blue. Readability is tested: body text at least 15px, muted text at least 4.5:1 contrast in both modes. Checked once at 360px wide in Edge (no horizontal scroll, button full width). System fonts only.
+2. Where things live: `common/email_templates/` (layout.html, verify_code.html, link_action.html, renderer.py). Every sentence is a line in `common/messages.py`; templates only insert values. The renderer uses Django's template engine on its own with autoescape on, so every inserted value (name, code, link) is HTML-escaped.
+3. Services still call the `EmailSender` interface. `EmailMessage` gained optional `kind`, `recipient_name`, `code`, `link` and `html_body`. `HtmlEmailSender` (common/infra/email.py) renders the HTML for a message that has a kind and hands it to `DjangoEmailSender`, which passes it to Django's `send_mail(html_message=...)`. The container's strict sender is now `HtmlEmailSender(DjangoEmailSender())`; the quiet sender wraps that. The failure rules of 9h are unchanged.
+4. The text part, subject and the code or link are byte-for-byte what they were, so the frontend and the existing tests are unaffected. The renderer never logs; the failure log still holds only error kind, SMTP code, errno and subject.
+5. The "password was changed" notice and the test message stay plain text: they were not in the design.
+6. Name in the greeting: the user's `full_name` is passed to the template (escaped). The greeting is left out when no name is given.
+7. `python manage.py preview_email verify_code|register_existing|reset_link` (development only, same guard as send_test_email) writes the HTML with sample values to a temporary file and prints its path. Nothing is sent. `send_test_email <address> --kind <kind>` sends the same designed email with the same sample data (common/management/email_samples.py, never real user data) through the strict sender; without --kind it still sends the plain test message.
+8. Not verified here: how Gmail, Outlook and Apple Mail draw it. Only the markup is tested; look at the preview and at a real send (`send_test_email` does not use the designed layout).
 
 ## 10. Deployment-step items (recorded 2 Nov 2026)
 

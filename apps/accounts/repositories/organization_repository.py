@@ -28,6 +28,15 @@ class PostgresOrganizationRepository:
         ).first()
         return to_entity(row) if row else None
 
+    def get_by_name(self, name: str) -> Organization | None:
+        """The oldest open organization with exactly this name (used by seed_demo)."""
+        row = (
+            OrganizationModel.objects.filter(name=name, deactivated_at__isnull=True)
+            .order_by("created_at", "id")
+            .first()
+        )
+        return to_entity(row) if row else None
+
     def create(
         self, *, organization_id: UUID, name: str, account_type: AccountType, timezone: str
     ) -> Organization:

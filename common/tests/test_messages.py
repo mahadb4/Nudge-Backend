@@ -26,7 +26,7 @@ def test_name_is_upper_snake(message):
 
 def test_every_name_has_a_known_prefix():
     prefixes = {name.split("_")[0] for name in Messages.__members__}
-    assert prefixes == {"COMMON", "AUTH", "TENANCY", "VALIDATION", "EMAIL", "CLI", "TESTDB"}
+    assert prefixes == {"COMMON", "AUTH", "TENANCY", "VALIDATION", "EMAIL", "CLI", "TESTDB", "CRM"}
 
 
 @pytest.mark.parametrize("message", ALL, ids=lambda m: m.name)

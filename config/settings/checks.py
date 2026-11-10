@@ -9,6 +9,29 @@ MIN_KEY_BYTES = 64
 PLACEHOLDER_PREFIX = "change-me"
 
 SHARED_CACHE_BACKENDS = frozenset({"django.core.cache.backends.redis.RedisCache"})
+# Backends that never deliver anything to a real mailbox.
+NON_DELIVERY_EMAIL_BACKENDS = frozenset(
+    {
+        "django.core.mail.backends.console.EmailBackend",
+        "django.core.mail.backends.locmem.EmailBackend",
+        "django.core.mail.backends.dummy.EmailBackend",
+        "django.core.mail.backends.filebased.EmailBackend",
+    }
+)
+
+
+def assert_email_settings(backend: str, timeout: int, *, production: bool) -> None:
+    """The email timeout must be positive, and production must really deliver mail.
+
+    Only setting names are reported; no value from the environment is ever printed.
+    """
+    if timeout <= 0:
+        raise ImproperlyConfigured("EMAIL_TIMEOUT must be a positive number of seconds.")
+    if production and backend in NON_DELIVERY_EMAIL_BACKENDS:
+        raise ImproperlyConfigured(
+            "EMAIL_BACKEND must be a delivering backend in production "
+            "(for example django.core.mail.backends.smtp.EmailBackend)."
+        )
 
 
 def assert_shared_cache(caches: Mapping[str, Mapping[str, object]]) -> None:

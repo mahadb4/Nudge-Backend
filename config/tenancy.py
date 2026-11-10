@@ -8,6 +8,7 @@ the other composition-root code because it reaches the services.
 
 from typing import ClassVar
 
+from rest_framework.permissions import SAFE_METHODS
 from rest_framework.request import Request
 from rest_framework.views import APIView
 
@@ -20,7 +21,9 @@ from config.authentication import principal_of
 
 class TenantApi(APIView):
     # None = any active member. Owner/Admin endpoints set (Role.OWNER, Role.ADMIN).
-    allowed_roles: ClassVar[tuple[Role, ...] | None] = None
+    # read_roles guards GET/HEAD/OPTIONS, write_roles guards every other method.
+    read_roles: ClassVar[tuple[Role, ...] | None] = None
+    write_roles: ClassVar[tuple[Role, ...] | None] = None
 
     def initial(self, request: Request, *args: object, **kwargs: object) -> None:
         super().initial(request, *args, **kwargs)
@@ -28,8 +31,9 @@ class TenantApi(APIView):
             user_id=principal_of(request).user_id,
             organization_header=request.META.get(MetaKey.ORGANIZATION),
         )
-        if self.allowed_roles is not None:
-            require_role(context, self.allowed_roles)
+        allowed = self.read_roles if request.method in SAFE_METHODS else self.write_roles
+        if allowed is not None:
+            require_role(context, allowed)
         request.tenant = context  # type: ignore[attr-defined]
 
 

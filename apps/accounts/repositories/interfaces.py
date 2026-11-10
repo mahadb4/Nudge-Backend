@@ -61,6 +61,10 @@ class UserRepository(Protocol):
 class OrganizationRepository(Protocol):
     def get(self, organization_id: UUID) -> Organization | None: ...
 
+    def get_by_name(self, name: str) -> Organization | None:
+        """The oldest open organization with exactly this name."""
+        ...
+
     def create(
         self, *, organization_id: UUID, name: str, account_type: AccountType, timezone: str
     ) -> Organization: ...
@@ -80,6 +84,10 @@ class MembershipRepository(Protocol):
     def create(
         self, *, membership_id: UUID, organization_id: UUID, user_id: UUID, role: Role
     ) -> Membership: ...
+
+    def find_owner_user_id(self, organization_id: UUID) -> UUID | None:
+        """The oldest active Owner of the organization."""
+        ...
 
     def get_active(self, organization_id: UUID, user_id: UUID) -> Membership | None:
         """The user's active membership in exactly this organization, or None (tenant check)."""
@@ -133,6 +141,10 @@ class VerificationCodeRepository(Protocol):
 
     def check(self, email_hash: str, code: str) -> CodeCheck:
         """OK, WRONG (counts one try) or LOCKED (5 wrong tries used). Does not remove the code."""
+        ...
+
+    def is_live(self, email_hash: str) -> bool:
+        """True while a code was issued for this email and has not expired or been used."""
         ...
 
     def discard(self, email_hash: str) -> None: ...

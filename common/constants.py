@@ -43,6 +43,14 @@ class HealthStatus:
     DOWN = "unavailable"
 
 
+class EmailKind(StrEnum):
+    """The designed (HTML) emails. Each has a template in common/email_templates/."""
+
+    VERIFY_CODE = "verify_code"
+    REGISTER_EXISTING = "register_existing"
+    RESET_LINK = "reset_link"
+
+
 class HmacNamespace:
     """Domain separation for the one HMAC key: the same value hashed for two purposes gives two
     digests."""
@@ -112,6 +120,10 @@ class Limits:
     PAGE_SIZE_DEFAULT = 25
     PAGE_SIZE_MAX = 100  # hard cap on every list (CODING_STYLE 7)
     STAGE_NAME = 40
+    DOMAIN = 253
+    INDUSTRY = 80
+    PERSON_NAME_PART = 80
+    JOB_TITLE = 80
     STAGES_MAX = 12
     QUERY_MIN = 2
     QUERY_MAX = 100
@@ -184,6 +196,12 @@ class AuditAction(StrEnum):
     SESSION_REUSE_DETECTED = "session.reuse_detected"
     USER_PROFILE_UPDATE = "user.profile_update"
     ORGANIZATION_UPDATE = "organization.update"
+    CONTACT_CREATE = "contact.create"
+    CONTACT_UPDATE = "contact.update"
+    CONTACT_DELETE = "contact.delete"
+    COMPANY_CREATE = "company.create"
+    COMPANY_UPDATE = "company.update"
+    COMPANY_DELETE = "company.delete"
     DEAL_STAGE_CREATE = "deal_stage.create"
     DEAL_STAGE_UPDATE = "deal_stage.update"
     DEAL_STAGE_REORDER = "deal_stage.reorder"

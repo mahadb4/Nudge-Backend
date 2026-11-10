@@ -27,6 +27,7 @@ class Messages(StrEnum):
     COMMON_METHOD_NOT_ALLOWED = "That action is not allowed here."
     COMMON_RATE_LIMITED = "Too many attempts, try again later."
     COMMON_SERVER_ERROR = "Something went wrong on our side. Try again in a moment."
+    COMMON_VERSION_CONFLICT = "Someone else changed this. Reload and try again."
     COMMON_SERVICE_UNAVAILABLE = "Nudge is not available right now. Try again in a moment."
 
     # -- Auth ----
@@ -81,6 +82,17 @@ class Messages(StrEnum):
     VALIDATION_QUIET_HOURS_PAIR = "Set both quiet hours times, or clear both."
     VALIDATION_LIST_INVALID = "Send a list."
     VALIDATION_NOTHING_TO_CHANGE = "Send at least one field to change."
+    VALIDATION_PAGE_INVALID = "Use a page number of 1 or more."
+    VALIDATION_PAGE_SIZE_INVALID = "Use a page size from 1 to {}."
+    VALIDATION_DOMAIN_INVALID = "Enter a web domain like acme.com, without https:// or a path."
+    VALIDATION_TEAM_REQUIRED = "Choose a team for team visibility."
+    VALIDATION_TEAM_NOT_ALLOWED = "Only team visibility has a team."
+    VALIDATION_TEAM_INVALID = "Choose one of your own teams."
+    VALIDATION_DATETIME_INVALID = (
+        "Use the exact date and time you were given, like 2026-11-09T12:00:00Z."
+    )
+    VALIDATION_COMPANY_INVALID = "Choose one of your companies."
+    VALIDATION_MEMBER_INVALID = "Choose a member of this workspace."
 
     # -- Crm ----
     CRM_STAGE_NAME_TAKEN = "A stage with that name already exists."
@@ -92,6 +104,9 @@ class Messages(StrEnum):
     )
     CRM_STAGE_IN_USE = "Move the deals out of this stage before deleting it."
     CRM_LAST_OPEN_STAGE = "A pipeline needs at least one open stage."
+    CRM_CONTACT_EMAIL_TAKEN = "A contact with that email already exists."
+    CRM_COMPANY_NAME_TAKEN = "A company with that name already exists."
+    CRM_COMPANY_DOMAIN_TAKEN = "A company with that domain already exists."
 
     # -- Email ---- the texts of the emails the auth flows send
     EMAIL_VERIFY_CODE_SUBJECT = "Your Nudge verification code"
@@ -113,11 +128,52 @@ class Messages(StrEnum):
         "Your Nudge password was changed. If this was not you, reset it now at {}."
     )
 
+    # -- Email layout ---- the sentences of the designed (HTML) emails; templates only insert values
+    EMAIL_BRAND_NAME = "Nudge"
+    EMAIL_GREETING = "Hi {},"
+    EMAIL_CODE_LABEL = "Your verification code"
+    EMAIL_FOOTER_AUTOMATED = "This email was sent automatically. Replies are not monitored."
+    EMAIL_FOOTER_BRAND = "{} © {}"
+    EMAIL_VERIFY_HEADING = "Verify your email"
+    EMAIL_VERIFY_INTRO = "Enter this code in Nudge to finish creating your account."
+    EMAIL_VERIFY_VALID = "The code expires in 10 minutes."
+    EMAIL_VERIFY_NOT_YOU = "If you did not ask for it, you can ignore this email."
+    EMAIL_EXISTING_HEADING = "Someone used your email to sign up"
+    EMAIL_EXISTING_INTRO = "Someone tried to create a Nudge account with this email address."
+    EMAIL_EXISTING_BUTTON = "Go to sign in"
+    EMAIL_EXISTING_LINK_LABEL = "Or open this link in your browser:"
+    EMAIL_EXISTING_NOT_YOU = "If it was not you, you can ignore this email."
+    EMAIL_RESET_HEADING = "Reset your password"
+    EMAIL_RESET_INTRO = "Use the button below to choose a new password for your Nudge account."
+    EMAIL_RESET_BUTTON = "Reset password"
+    EMAIL_RESET_LINK_LABEL = "Or copy this link into your browser:"
+    EMAIL_RESET_VALID = "The link works once and expires in an hour."
+    EMAIL_RESET_NOT_YOU = "If you did not ask for a reset, you can ignore this email."
+
     # -- Cli ---- management commands
     CLI_COMMAND_REFUSED = (
         "'{}' is disabled. The nudge schema comes from docs/nudge_schema_v3_1_no_pgvector.sql "
         "and is never changed or emptied by Django."
     )
+
+    CLI_DEV_ONLY_SETTINGS = (
+        "{} only runs with the development settings (config.settings.dev), not with '{}'."
+    )
+    CLI_DEV_ONLY_DEBUG = "{} only runs with DEBUG on."
+    CLI_DEV_ONLY_DATABASE = "{} only runs on the development database '{}', not on '{}'."
+    CLI_SEED_SUMMARY = "Demo workspace '{}': {} stages, {} companies, {} contacts."
+    CLI_SEED_CREATED = "Sign in with {} and the password {} (shown only now, it is not stored)."
+    CLI_SEED_EXISTS = (
+        "The demo workspace already exists (owner {}). Nothing was duplicated and the password "
+        "is unchanged. Use --reset-password for a new one."
+    )
+    CLI_TEST_EMAIL_SUBJECT = "Nudge test email"
+    CLI_TEST_EMAIL_BODY = "This is a test message from Nudge. If you can read it, sending works."
+    CLI_TEST_EMAIL_SENT = "Test email sent to {} (backend {})."
+    CLI_PREVIEW_EMAIL_WRITTEN = "Preview of '{}' written to {}. Open the file in a browser."
+    CLI_PREVIEW_EMAIL_FAILED = "The preview could not be written."
+    CLI_TEST_EMAIL_FAILED = "Sending failed. Check the EMAIL_* settings; the log has the reason."
+    CLI_SEED_NEW_PASSWORD = "New password for {}: {} (shown only now)."
 
     # -- Testdb ---- the pytest database builder
     TESTDB_REMOTE_HOST = "The test database must be on localhost or 127.0.0.1, not '{}'."

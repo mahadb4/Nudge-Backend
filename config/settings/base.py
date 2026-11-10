@@ -1,6 +1,7 @@
 """Settings shared by every environment. Values that differ per machine come from the environment
 (.env)."""
 
+import os
 from pathlib import Path
 
 import environ
@@ -8,7 +9,8 @@ import environ
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 env = environ.Env()
-environ.Env.read_env(BASE_DIR / ".env", overwrite=False)
+# NUDGE_ENV_FILE lets a test point at another (or no) env file; normally it is .env.
+environ.Env.read_env(os.environ.get("NUDGE_ENV_FILE", BASE_DIR / ".env"), overwrite=False)
 
 SECRET_KEY = env("SECRET_KEY")
 JWT_SIGNING_KEY = env("JWT_SIGNING_KEY")
@@ -77,19 +79,23 @@ def database(url_variable: str) -> dict:
 # The nudge database is built from docs/nudge_schema_v3_1_no_pgvector.sql. migrate is never run
 # (Q-7).
 DATABASES = {"default": database("DATABASE_URL")}
+# The name of the real development database. Commands that may only touch it (seed_demo) compare
+# the connected database with this.
+DEV_DATABASE_NAME = DATABASES["default"]["NAME"]
 
 # locmemcache:// in dev (one process only); redis://host:6379/0 in staging and production.
 CACHES = {"default": env.cache("CACHE_URL", default="locmemcache://")}
 
-# consolemail:// in dev (prints emails); smtp+tls://user:password@host:587 later.
-EMAIL_CONFIG = env.email_url("EMAIL_URL", default="consolemail://")
-EMAIL_BACKEND = EMAIL_CONFIG["EMAIL_BACKEND"]
-EMAIL_HOST = EMAIL_CONFIG.get("EMAIL_HOST") or "localhost"
-EMAIL_PORT = EMAIL_CONFIG.get("EMAIL_PORT") or 25
-EMAIL_HOST_USER = EMAIL_CONFIG.get("EMAIL_HOST_USER") or ""
-EMAIL_HOST_PASSWORD = EMAIL_CONFIG.get("EMAIL_HOST_PASSWORD") or ""
-EMAIL_USE_TLS = bool(EMAIL_CONFIG.get("EMAIL_USE_TLS", False))
-EMAIL_TIMEOUT = 10  # seconds; every external call has a timeout (CODING_STYLE 7)
+# Email comes from separate environment variables. Development defaults to the console backend;
+# real delivery happens only when EMAIL_BACKEND names the SMTP backend. The password is never
+# logged, printed or put in a message.
+EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend")
+EMAIL_HOST = env("EMAIL_HOST", default="localhost")
+EMAIL_PORT = env.int("EMAIL_PORT", default=25)
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=False)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=10)  # seconds; every external call has one
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="Nudge <no-reply@localhost>")
 
 LANGUAGE_CODE = "en-us"

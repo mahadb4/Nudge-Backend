@@ -99,4 +99,4 @@ class VerificationService:
         self._limiter.hit(AttemptLimits.RESEND_EMAIL, email_subject(email_hash))
         user = self._users.get_by_email(clean_email)
         if user is not None and user.is_active and user.email_verified_at is None:
-            self._code_sender.send_code(user.email, email_hash)
+            self._code_sender.send_code(user.email, email_hash, user.full_name)

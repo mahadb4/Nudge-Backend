@@ -41,6 +41,7 @@ class AppError(Exception):
         fields: Mapping[str, Sequence[FieldIssue]] | None = None,
         current: Mapping[str, object] | None = None,
         headers: Mapping[str, str] | None = None,
+        extra: Mapping[str, object] | None = None,
     ) -> None:
         chosen = message or self.default_message
         if chosen is None:
@@ -51,6 +52,8 @@ class AppError(Exception):
         self.fields = {name: tuple(issues) for name, issues in (fields or {}).items()}
         self.current = current
         self.headers = dict(headers or {})
+        # More keys for the reply body (for example "existing"); never code, detail or fields.
+        self.extra = dict(extra or {})
 
     @property
     def code(self) -> str:

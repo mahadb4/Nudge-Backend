@@ -1,9 +1,12 @@
 """In-memory fakes of the Protocols in common/interfaces.py, for service unit tests (no database, no
 HTTP)."""
 
+import smtplib
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from uuid import UUID
+
+from django.core.mail.backends.base import BaseEmailBackend
 
 from common.infra.clock import FrozenClock
 from common.interfaces import AuditEvent, Clock, EmailMessage
@@ -132,3 +135,14 @@ __all__ = [
     "FrozenClock",
     "SequentialIdGenerator",
 ]
+
+
+class FailingEmailBackend(BaseEmailBackend):
+    """A Django mail backend that always fails with `error`. Never touches the network."""
+
+    error: BaseException = smtplib.SMTPServerDisconnected("connection lost")
+    attempts = 0
+
+    def send_messages(self, email_messages: list) -> int:  # type: ignore[type-arg]
+        type(self).attempts += 1
+        raise type(self).error

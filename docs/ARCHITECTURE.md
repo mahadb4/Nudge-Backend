@@ -114,7 +114,7 @@ Other protections (JWT alone is not enough)
 - Audit log for every security-relevant action. Secrets only in environment variables. pip-audit before release.
 - Later: two-factor sign-in, Google and Microsoft sign-in, row-level security in the database (needs a schema change, so after the freeze).
 Email
-- Console backend in development; real SMTP (or a provider) later behind the EmailSender interface. Sent synchronously for the midterm; a background worker later.
+- Console backend in development; real SMTP when EMAIL_BACKEND names it in the environment (EMAIL_HOST, EMAIL_PORT, EMAIL_USE_TLS, EMAIL_HOST_USER, EMAIL_HOST_PASSWORD, DEFAULT_FROM_EMAIL, EMAIL_TIMEOUT), behind the EmailSender interface. Sent synchronously for the midterm; a background worker later. A strict sender raises 503 on failure; a quiet sender logs and swallows it (BACKEND_PLAN 9h).
 
 10. TESTING PER LAYER
 - services: unit tests with fake repositories (no database, no HTTP).

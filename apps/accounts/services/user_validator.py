@@ -21,10 +21,13 @@ from common.validators import (
     validate_bool,
     validate_code,
     validate_company_for_type,
+    validate_company_name,
     validate_email,
     validate_login_password,
     validate_password,
     validate_person_name,
+    validate_phone,
+    validate_time_of_day,
     validate_timezone,
 )
 
@@ -121,3 +124,34 @@ class UserValidator:
         if not is_reset_token_format(token):
             raise ValidationFailed(Messages.AUTH_INVALID_TOKEN)
         return cast(str, token)
+
+    def validate_profile(self, sent: dict[str, object]) -> dict[str, object]:
+        """Format rules for the profile fields that were sent. null clears phone and quiet hours."""
+        errors = FieldErrors()
+        clean: dict[str, object] = {}
+        if "name" in sent:
+            clean["full_name"] = errors.check("name", validate_person_name, sent["name"])
+        if "phone" in sent:
+            empty = sent["phone"] is None or sent["phone"] == ""
+            clean["phone"] = None if empty else errors.check("phone", validate_phone, sent["phone"])
+        if "timezone" in sent:
+            clean["timezone"] = errors.check("timezone", validate_timezone, sent["timezone"])
+        for field in ("quiet_hours_start", "quiet_hours_end"):
+            if field in sent:
+                clean[field] = (
+                    None
+                    if sent[field] is None
+                    else errors.check(field, validate_time_of_day, sent[field])
+                )
+        errors.raise_if_any()
+        return clean
+
+    def validate_organization_settings(self, sent: dict[str, object]) -> dict[str, object]:
+        errors = FieldErrors()
+        clean: dict[str, object] = {}
+        if "name" in sent:
+            clean["name"] = errors.check("name", validate_company_name, sent["name"])
+        if "timezone" in sent:
+            clean["timezone"] = errors.check("timezone", validate_timezone, sent["timezone"])
+        errors.raise_if_any()
+        return clean

@@ -13,6 +13,7 @@ from common.constants import (
     ActorType,
     AttemptLimits,
     AuditAction,
+    EmailKind,
     HmacNamespace,
     email_subject,
     ip_subject,
@@ -85,7 +86,7 @@ class PasswordService:
                 # Someone changed it between our check and our write: the current one is stale.
                 raise ValidationFailed.for_field("current", Messages.AUTH_WRONG_CURRENT_PASSWORD)
             self._sessions.revoke_others(user.id, principal.session_id)
-            self._audit.write(self._event(AuditAction.USER_PASSWORD_CHANGE, user.id, ip_address))
+            self._audit.write(_event(AuditAction.USER_PASSWORD_CHANGE, user.id, ip_address))
         self._tell_password_changed(user.email)
 
     def request_reset(self, *, email: object, ip_address: str | None) -> None:
@@ -98,14 +99,16 @@ class PasswordService:
         if user is None or not user.is_active:
             return
         token = self._tokens.issue(user)
-        self._audit.write(self._event(AuditAction.USER_PASSWORD_RESET_REQUEST, user.id, ip_address))
+        self._audit.write(_event(AuditAction.USER_PASSWORD_RESET_REQUEST, user.id, ip_address))
+        link = f"{self._frontend_url}/new-password?token={token}"
         self._email.send(
             EmailMessage(
                 to=user.email,
                 subject=Messages.EMAIL_RESET_LINK_SUBJECT.value,
-                text_body=Messages.EMAIL_RESET_LINK_BODY.render(
-                    f"{self._frontend_url}/new-password?token={token}"
-                ),
+                text_body=Messages.EMAIL_RESET_LINK_BODY.render(link),
+                kind=EmailKind.RESET_LINK,
+                recipient_name=user.full_name,
+                link=link,
             )
         )
 
@@ -128,7 +131,7 @@ class PasswordService:
             ):
                 raise ValidationFailed(Messages.AUTH_INVALID_TOKEN)  # the link was used meanwhile
             self._sessions.revoke_all(user.id)
-            self._audit.write(self._event(AuditAction.USER_PASSWORD_RESET, user.id, ip_address))
+            self._audit.write(_event(AuditAction.USER_PASSWORD_RESET, user.id, ip_address))
         self._tell_password_changed(user.email)
 
     def _tell_password_changed(self, address: str) -> None:
@@ -142,14 +145,14 @@ class PasswordService:
             )
         )
 
-    @staticmethod
-    def _event(action: AuditAction, user_id: UUID, ip_address: str | None) -> AuditEvent:
-        return AuditEvent(
-            action=action,
-            actor_type=ActorType.USER,
-            actor_id=user_id,
-            organization_id=None,
-            object_type=AUDIT_OBJECT_USER,
-            object_id=user_id,
-            ip_address=ip_address,
-        )
+
+def _event(action: AuditAction, user_id: UUID, ip_address: str | None) -> AuditEvent:
+    return AuditEvent(
+        action=action,
+        actor_type=ActorType.USER,
+        actor_id=user_id,
+        organization_id=None,
+        object_type=AUDIT_OBJECT_USER,
+        object_id=user_id,
+        ip_address=ip_address,
+    )

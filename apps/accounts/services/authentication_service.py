@@ -15,7 +15,7 @@ class AuthenticationService:
         self._clock = clock
 
     def authenticate(self, authorization: str | None) -> Principal:
-        token = self._bearer_token(authorization)
+        token = _bearer_token(authorization)
         now = self._clock.now()
         claims = self._signer.verify_access(token, now=now)
         # One primary-key lookup per request: the token is only good while its session is.
@@ -24,12 +24,12 @@ class AuthenticationService:
             raise Unauthorized(Messages.AUTH_ACCESS_TOKEN_INVALID)
         return Principal(user_id=claims.user_id, session_id=session.id)
 
-    @staticmethod
-    def _bearer_token(authorization: str | None) -> str:
-        prefix = HeaderValue.BEARER_PREFIX
-        if not authorization or not authorization.startswith(prefix):
-            raise Unauthorized(Messages.AUTH_ACCESS_TOKEN_INVALID)
-        token = authorization[len(prefix) :]
-        if not token or " " in token:
-            raise Unauthorized(Messages.AUTH_ACCESS_TOKEN_INVALID)
-        return token
+
+def _bearer_token(authorization: str | None) -> str:
+    prefix = HeaderValue.BEARER_PREFIX
+    if not authorization or not authorization.startswith(prefix):
+        raise Unauthorized(Messages.AUTH_ACCESS_TOKEN_INVALID)
+    token = authorization[len(prefix) :]
+    if not token or " " in token:
+        raise Unauthorized(Messages.AUTH_ACCESS_TOKEN_INVALID)
+    return token

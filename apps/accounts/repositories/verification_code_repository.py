@@ -36,6 +36,9 @@ class CacheVerificationCodeRepository:
         self._cache.incr(verify_tries_key(email_hash), Ttl.VERIFY_CODE)
         return CodeCheck.WRONG
 
+    def is_live(self, email_hash: str) -> bool:
+        return self._cache.get(verify_code_key(email_hash)) is not None
+
     def discard(self, email_hash: str) -> None:
         self._cache.delete(verify_code_key(email_hash))
         self._cache.delete(verify_tries_key(email_hash))

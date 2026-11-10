@@ -36,6 +36,15 @@ The other folders in a module: `domain/` (plain objects and enums), `dtos/` (exa
 | `testdb.py` | Builds the empty `nudge_test` database from the SQL files and refuses anything not local and named `*_test`. | `conftest.py` |
 | `apps.py` | Registers `common` as a Django app so the guard commands are found. | settings |
 
+### `common/email_templates/` (the designed emails)
+
+| File | What it does |
+|---|---|
+| `layout.html` | The shared frame: 600px table layout, inline styles, logo mark and name, heading, greeting, intro, validity and "not you" lines, footer, dark-mode block. Only inserts values. |
+| `verify_code.html` | Adds the large monospaced code block. |
+| `link_action.html` | Adds the button and the plain link below it (sign-up notice and password reset). |
+| `renderer.py` | `EmailRenderer(clock).render_html(message)` (the clock gives the footer year): picks the template and sentences for the message's `EmailKind` from `Messages`, renders with autoescape on. Never logs. |
+
 ### `common/infra/` (real implementations of the Protocols)
 
 | File | What it does |
@@ -43,7 +52,7 @@ The other folders in a module: `domain/` (plain objects and enums), `dtos/` (exa
 | `clock.py` | `SystemClock` (real time) and `FrozenClock` (time that moves only when a test says so). |
 | `ids.py` | `UuidV7Generator`: new time-ordered ids. Needed in Python because a session's refresh value contains its id before the row exists. |
 | `cache.py` | `DjangoCache`: Django's cache (Redis in production, memory in development). Any cache failure becomes a 503, never "allowed". |
-| `email.py` | `DjangoEmailSender`: sends mail (console in development). A send failure becomes a 503. Synchronous until a worker queue exists. |
+| `email.py` | `DjangoEmailSender` (strict): sends through the backend named in the environment (console in development, SMTP when `EMAIL_BACKEND` says so). A failure or timeout is logged without secrets (error kind, SMTP code, subject only) and becomes ServiceUnavailable (503). `HtmlEmailSender` wraps it and adds the designed HTML version (from `common/email_templates/`) to messages that have a `kind`. `QuietEmailSender` wraps that for paths whose answer must not depend on delivery: it swallows that one error. Chosen per path in `config/container.py` (`email_sender()` strict, `quiet_email_sender()`). Synchronous until a worker queue exists. |
 | `unit_of_work.py` | `DjangoUnitOfWork`: "do these writes in one transaction". |
 
 ### `common/security/` (implementations that need a security library)
@@ -67,7 +76,8 @@ The other folders in a module: `domain/` (plain objects and enums), `dtos/` (exa
 | `repositories/interfaces.py`, `repositories/health_repository.py` | The `HealthRepository` Protocol and its Postgres version (`SELECT 1`, one row of `users`, 2 s limit). |
 | `domain/entities.py`, `dtos/health_dtos.py`, `mappers/health_mapper.py` | `HealthReport` -> `HealthResponse` (the JSON shape). |
 
-### `common/management/` (the migrate guard)
+### `common/management/` (the migrate guard and seed_demo)
+`guard.py` also holds `assert_dev_only` (seed_demo and send_test_email run only with the dev settings, DEBUG on and the dev database). `commands/preview_email.py <kind>` (same guard) writes one designed email's HTML, filled with sample values, to a temporary file and prints the path; nothing is sent. `email_samples.py` holds the made-up name, code and links both email commands use. `commands/send_test_email.py` (with `--kind`, a designed email with sample data) sends one message through the strict sender to an address you give, to check the EMAIL_* settings. `commands/seed_demo.py` is the command; `demo_seeder.py` builds the workspace through the real services (idempotent, generated credentials shown once); `demo_data.py` is the made-up data.
 
 `guard.py` replaces a command's `handle()` with a refusal. `commands/migrate.py`, `makemigrations.py`, `flush.py`, `createcachetable.py` and `loaddata.py` are Django's own commands with the guard added, so `--help` works but running them fails. They could create, change or empty tables in the nudge database.
 
@@ -83,14 +93,20 @@ The other folders in a module: `domain/` (plain objects and enums), `dtos/` (exa
 |---|---|---|
 | `domain/` | `entities.py`, `enums.py`, `errors.py` | User, Organization, Membership, Session, Me, `SignInResult`, `Principal` (who an access token is for), `Rotation` and the inputs of sign-up, login and password change; membership status and code-check result; `DuplicateEmail`. |
 | `repositories/` | `interfaces.py`, `models.py`, `user_`, `organization_`, `membership_`, `session_`, `verification_code_repository.py` | The only code that reads and writes these tables (and the verification codes in the cache). `models.py` holds the private ORM models; entities leave, ORM rows never do. |
-| `services/` | `user_validator.py`, `registration_service.py`, `verification_service.py`, `verification_code_service.py`, `session_service.py`, `sign_in_service.py`, `authentication_service.py`, `password_service.py`, `reset_token_service.py`, `me_service.py`, `interfaces.py` | Format rules; sign-up (latest sign-up wins on an unverified address); verify and resend; "make a code and email it"; sessions (start, rotate, reuse detection, end); login, refresh, logout; "is this bearer token good?"; password change, forgot and reset; the signed link; the signed-in user's view; what accounts needs from crm. |
+| `services/` | `user_validator.py`, `registration_service.py`, `verification_service.py`, `verification_code_service.py`, `session_service.py`, `sign_in_service.py`, `authentication_service.py`, `password_service.py`, `reset_token_service.py`, `tenant_service.py` (header -> TenantContext), `profile_service.py`, `organization_service.py`, `me_service.py`, `interfaces.py` | Format rules; sign-up (latest sign-up wins on an unverified address); verify and resend; "make a code and email it"; sessions (start, rotate, reuse detection, end); login, refresh, logout; "is this bearer token good?"; password change, forgot and reset; the signed link; the signed-in user's view; what accounts needs from crm. |
 | `dtos/` | `auth_dtos.py`, `password_dtos.py` | Strict request serializers and the response dataclasses of the auth and password endpoints. |
 | `mappers/` | `auth_mapper.py` | Entities -> response DTOs (never a password hash). |
-| `api/` | `auth_api.py`, `password_api.py`, `urls.py` | `CsrfApi`, `RegisterApi`, `VerifyApi`, `ResendApi`, `LoginApi`, `RefreshApi`, `LogoutApi`, `MeApi`; `PasswordChangeApi`, `ResetRequestApi`, `ResetConfirmApi`. |
+| `api/` | `auth_api.py`, `password_api.py`, `organization_api.py`, `urls.py` | `CsrfApi`, `RegisterApi`, `VerifyApi`, `ResendApi`, `LoginApi`, `RefreshApi`, `LogoutApi`, `MeApi` (GET and PATCH); `CurrentOrganizationApi`; `PasswordChangeApi`, `ResetRequestApi`, `ResetConfirmApi`. |
+
+`config/tenancy.py`: `TenantApi`, the base class of every endpoint that works inside one organization. After authentication it builds the `TenantContext` (user, organization, role) from the `X-Organization-ID` header through `TenantService`, and refuses roles that are not in `read_roles` (GET) or `write_roles` (other methods). `tenant_of(request)` returns the context.
 
 `config/authentication.py` (composition root, because it reaches the services) holds the DRF class `AccessTokenAuthentication` that reads `Authorization: Bearer ...`, and `principal_of(request)`. It is the project default (settings), so an API class is private unless it sets `authentication_classes = []` and `permission_classes = []`. A test lists the public ones.
 
-### `apps/crm`: `StageService.seed_defaults()` gives a new organization its 7 default stages (same rows as the database function). Entities, enums, defaults and the stage repository.
+### `apps/crm`: contacts, companies and deal stages
+Contacts: `services/contact_service.py`, `contact_validator.py`, `repositories/contact_repository.py` (four fixed queries per list, company names only for companies the caller can see), `api/contact_api.py` (`ContactListApi`, `ContactApi`), `dtos/contact_dtos.py`, `mappers/contact_mapper.py`. Shared with companies: `repositories/link_repository.py` (visibility rule `restrict_to_visible`, active-member and team questions) and `services/link_service.py` (the owner and team rules).
+Companies: `services/company_service.py` (list, get, create, update with `updated_at` check, soft delete, the owner/team/unique-name rules), `company_validator.py` (format), `repositories/company_repository.py` (a `TenantRepository`; visibility rule in `_visible`, five fixed queries for a list in `_details`), `api/company_api.py` (`CompanyListApi`, `CompanyApi`), `dtos/company_dtos.py`, `mappers/company_mapper.py`. `common/pagination.py` is the shared list helper (`parse_list_query`, `Page`, `page_link`).
+Deal stages:
+`services/stage_service.py` (seed, list, create, rename, reorder, delete with all the Q-5 rules), `stage_validator.py` (format), `repositories/stage_repository.py` (a `TenantRepository`: every method takes the `TenantContext` first, `lock_all` locks the stage rows, `list_with_counts` is two queries), `api/stage_api.py` (`DealStageApi`, `DealStageDetailApi`, `DealStageOrderApi`), `dtos/stage_dtos.py`, `mappers/stage_mapper.py`. `common/tenancy.py`, `common/permissions.py` and `common/tenant_repository.py` are the shared pieces; the architecture test checks that tenant repository methods take the context first.
 ### `apps/audit`: `AuditService.write()` appends a row to `audit_logs`. Insert only; the database refuses updates and deletes.
 
 ## `common/middleware.py` explained

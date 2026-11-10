@@ -87,7 +87,7 @@ class SessionService:
             tokens=SessionTokens(
                 access_token=access.token,
                 refresh_value=new_value,
-                cookie_max_age=self._cookie_max_age(session, now),
+                cookie_max_age=_cookie_max_age(session, now),
             ),
         )
 
@@ -131,10 +131,10 @@ class SessionService:
                 )
             )
 
-    @staticmethod
-    def _cookie_max_age(session: Session, now: datetime) -> int | None:
-        """A 'keep me signed in' session keeps a persistent cookie for the time it has left."""
-        lifetime = session.expires_at - session.created_at
-        if lifetime < timedelta(seconds=Ttl.REMEMBER_MIN_LIFETIME):
-            return None
-        return max(1, int((session.expires_at - now).total_seconds()))
+
+def _cookie_max_age(session: Session, now: datetime) -> int | None:
+    """A 'keep me signed in' session keeps a persistent cookie for the time it has left."""
+    lifetime = session.expires_at - session.created_at
+    if lifetime < timedelta(seconds=Ttl.REMEMBER_MIN_LIFETIME):
+        return None
+    return max(1, int((session.expires_at - now).total_seconds()))
